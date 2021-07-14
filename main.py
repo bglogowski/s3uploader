@@ -5,13 +5,14 @@ import getopt
 import threading
 
 import boto3
-import botocore
+import boto3.s3.transfer
+import botocore.exceptions
 
 import hashlib
 
 from timeit import default_timer as timer
 
-print("Starting...")
+print(os.environ)
 
 exclude_list: list[str] = ['.DS_Store']
 
@@ -30,22 +31,22 @@ def hash_file(file):
     return sha256.hexdigest()
 
 
-def s3_add_metadata(bucket, object, metadata):
+def s3_add_metadata(bucket, obj, metadata):
     s3 = boto3.resource('s3')
-    s3_object = s3.Object(bucket, object)
+    s3_object = s3.Object(bucket, obj)
 
     s3_object.metadata.update(metadata)
-    s3_object.copy_from(CopySource={'Bucket': bucket, 'Key': object}, Metadata=s3_object.metadata,
+    s3_object.copy_from(CopySource={'Bucket': bucket, 'Key': obj}, Metadata=s3_object.metadata,
                         MetadataDirective='REPLACE')
 
 
-def s3_upload(file, bucket, object, metadata):
+def s3_upload(file, bucket, obj, metadata):
     client = boto3.client('s3')
     transfer = boto3.s3.transfer.S3Transfer(client)
     size = float(os.path.getsize(file))
 
     start = timer()
-    transfer.upload_file(file, bucket, object, extra_args=metadata, callback=_progress(file, size, 'Upload'))
+    transfer.upload_file(file, bucket, obj, extra_args=metadata, callback=_progress(file, size, 'Upload'))
     end = timer()
 
     print("Upload completed in " + str(end - start) + " seconds.")
@@ -86,10 +87,10 @@ def local_get_files(directory):
     print("Getting files...")
     catalog = {}
 
-    for (dirpath, dirnames, filenames) in os.walk(directory):
+    for (dir_path, dir_names, filenames) in os.walk(directory):
         if not any(item in filenames for item in exclude_list):
             for f in filenames:
-                catalog[f] = dirpath + '/' + f
+                catalog[f] = dir_path + '/' + f
     return catalog
 
 
@@ -98,9 +99,9 @@ def put_files(catalog, bucket):
 
 
 def s3_put_files(catalog, bucket):
-    # s3 = boto3.resource('s3')
+    s3 = boto3.resource('s3')
 
-    s3 = boto3.client('s3')
+    # s3 = boto3.client('s3')
 
     for file in catalog:
 
@@ -108,13 +109,13 @@ def s3_put_files(catalog, bucket):
         m = {"Metadata": {'sha256': sha256}}
 
         try:
+            s3.Object(bucket, file).load()
             metadata = s3.head_object(Bucket=bucket, Key=file)['Metadata']
 
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
                 print(file + " does not exist in " + bucket)
 
-                # Upload filepath, bucket, objectname
                 start = timer()
 
                 s3_upload(catalog[file], bucket, file, m)
@@ -124,7 +125,7 @@ def s3_put_files(catalog, bucket):
 
         else:
 
-            # metadata = boto3.client('s3').head_object(Bucket=bucket, Key=file)['Metadata']
+            metadata = boto3.client('s3').head_object(Bucket=bucket, Key=file)['Metadata']
 
             old_hash = metadata['sha256']
             # new_hash = hash_file(catalog[file])
@@ -136,7 +137,7 @@ def s3_put_files(catalog, bucket):
                 print(file + " hash (" + new_hash + ") doesn't match S3 object (" + old_hash + "). Uploading again...")
 
                 start = timer()
-                s3_upload(catalog[file], bucket, file)
+                s3_upload(catalog[file], bucket, file, m)
                 end = timer()
                 print("Upload completed in " + str(end - start) + " seconds.")
                 break
@@ -165,6 +166,7 @@ def main(argv):
         elif opt in ("-b", "--bucket"):
             bucket = arg
 
+        print(bucket)
         files = get_files(directory)
         put_files(files, bucket)
 
