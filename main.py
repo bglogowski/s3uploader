@@ -141,7 +141,7 @@ def fs_get_files(directory: str, use_folders: bool) -> dict:
 
 
 def s3_put_files(catalog: dict, bucket: str) -> None:
-    s3 = boto3.client('s3')
+    client = boto3.client('s3')
 
     for file in catalog:
 
@@ -149,7 +149,7 @@ def s3_put_files(catalog: dict, bucket: str) -> None:
         m = {"Metadata": {"sha256": sha256}}
 
         try:
-            s3_metadata = s3.head_object(Bucket=bucket, Key=file)['Metadata']
+            s3_metadata = client.head_object(Bucket=bucket, Key=file)['Metadata']
 
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
