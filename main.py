@@ -1,6 +1,36 @@
+"""
+Amazon S3 file uploader script
+======================
+
+Uploads local files to S3 while optionally retaining the
+local directory structure.
+
+S3 Folder Structure
+-------------------
+S3 is not a filesystem, it is an object store. Therefore,
+the default behavior is simply to upload files as objects
+into a bucket using a flat namespace. However, owing to
+the complexity of real world data, the script will optionally
+organize the data in S3 using the local directory structure.
+
+File integrity checks
+-------------------
+S3 Etags cannot be guaranteed to be MD5 hashes of the original
+file, such as when multi-part uploads are used to create the
+object. Therefore a cryptographic hash of the original file
+will be stored as metadata of the S3 object.
+
+SHA-256 was chosen because MD5 and SHA-1 are compromised and
+therefore unreliable measures of file integrity. SHA-256 is
+also reasonably performant as compared to alternative hash
+algorithms.
+
+"""
+
 import getopt
 import hashlib
 import os
+import re
 import sys
 import threading
 from timeit import default_timer as timer
@@ -9,7 +39,17 @@ import boto3.s3.transfer
 import botocore.exceptions
 
 
-def hash_file(file_path) -> str:
+def sha256_file_hash(file_path: str) -> str:
+    """
+    Generate a SHA-256 cryptographic hash of file
+
+    :param file_path: File from which to obtain hash
+    :type file_path: str
+    :return: Hexadecimal digest of hash
+    :rtype: str
+    """
+
+    # Limit the amount of data read into memory
     file_buffer: int = 65536
 
     sha256 = hashlib.sha256()
@@ -24,7 +64,22 @@ def hash_file(file_path) -> str:
     return sha256.hexdigest()
 
 
-def s3_upload(file, bucket, obj, metadata) -> float:
+def s3_upload(file: str, bucket: str, obj_name: str, metadata: dict) -> float:
+    """
+    Upload a local file to Amazon S3
+
+    :param file: The full path of the file to upload
+    :type file: str
+    :param bucket: The name of an S3 bucket
+    :type bucket: str
+    :param obj_name: The name of the S3 object to create
+    :type obj_name: str
+    :param metadata: Metadata to add to the S3 object
+    :type metadata: dict
+    :return: returns the duration of the upload in seconds
+    :rtype: float
+    """
+
     client = boto3.client('s3')
     transfer = boto3.s3.transfer.S3Transfer(client)
 
@@ -33,7 +88,7 @@ def s3_upload(file, bucket, obj, metadata) -> float:
     start = timer()
     transfer.upload_file(file,
                          bucket,
-                         obj,
+                         obj_name,
                          extra_args=metadata,
                          callback=_progress(file, size, 'Upload'))
     end = timer()
@@ -41,7 +96,8 @@ def s3_upload(file, bucket, obj, metadata) -> float:
     return end - start
 
 
-def _progress(filename, size, ops):
+def _progress(filename: str, size: float, ops: str):
+
     _filename = filename
     _size = size
     _seen_so_far = 0
@@ -66,24 +122,30 @@ def _progress(filename, size, ops):
     return call
 
 
-def fs_get_files(directory):
+def fs_get_files(directory: str, use_folders: bool) -> dict[str, str]:
     exclude_list: set[str] = {".DS_Store"}
     catalog: dict[str, str] = {}
 
     for (path, dirs, files) in os.walk(directory):
         if not any(x in files for x in exclude_list):
             for f in files:
-                catalog[f] = path + "/" + f
+                full_path = path + "/" + f
+                if use_folders:
+                    key = full_path.replace(directory, "")
+                    key = re.sub('^/', '', key)
+                else:
+                    key = f
+                catalog[key] = full_path
 
     return catalog
 
 
-def s3_put_files(catalog, bucket):
+def s3_put_files(catalog: dict, bucket: str) -> None:
     s3 = boto3.client('s3')
 
     for file in catalog:
 
-        sha256 = hash_file(catalog[file])
+        sha256 = sha256_file_hash(catalog[file])
         m = {"Metadata": {"sha256": sha256}}
 
         try:
@@ -115,18 +177,19 @@ def s3_put_files(catalog, bucket):
 def main(argv):
     directory: str = ""
     bucket: str = ""
+    use_folders = False
 
     try:
-        opts, args = getopt.getopt(argv, "hb:d:", ["bucket=", "directory="])
+        opts, args = getopt.getopt(argv, "hd:b:f", ["directory=", "bucket="])
 
     except getopt.GetoptError:
-        print(sys.argv[0] + ' -d <base directory> -b <S3 bucket>')
+        print(sys.argv[0] + " -d <base directory> -b <S3 bucket>")
         sys.exit(2)
 
     for opt, arg in opts:
 
-        if opt == '-h':
-            print(sys.argv[0] + ' -d <base directory> -b <S3 bucket>')
+        if opt == "-h":
+            print(sys.argv[0] + " -d <base directory> -b <S3 bucket>")
             sys.exit()
 
         elif opt in ("-d", "--directory"):
@@ -135,12 +198,14 @@ def main(argv):
         elif opt in ("-b", "--bucket"):
             bucket = arg
 
-    files: dict[str, str] = fs_get_files(directory)
+        elif opt == "-f":
+            use_folders = True
+
     assert isinstance(bucket, str)
+    files: dict[str, str] = fs_get_files(directory, use_folders)
 
     return s3_put_files(files, bucket)
 
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-    sys.exit()
