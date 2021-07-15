@@ -122,7 +122,7 @@ def _progress(filename: str, size: float, ops: str):
     return call
 
 
-def fs_get_files(directory: str, use_folders: bool) -> dict[str, str]:
+def fs_get_files(directory: str, use_folders: bool) -> dict:
     exclude_list: set[str] = {".DS_Store"}
     catalog: dict[str, str] = {}
 
