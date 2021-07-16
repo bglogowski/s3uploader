@@ -29,7 +29,9 @@ algorithms.
 
 import getopt
 import hashlib
+import logging
 import os
+import random
 import re
 import sys
 import threading
@@ -38,30 +40,106 @@ from timeit import default_timer as timer
 import boto3.s3.transfer
 import botocore.exceptions
 
+logging.basicConfig(filename='/tmp/example.log', encoding='utf-8', level=logging.DEBUG)
 
-def sha256_file_hash(file_path: str) -> str:
-    """
-    Generate a SHA-256 cryptographic hash of file
-
-    :param file_path: File from which to obtain hash
-    :type file_path: str
-    :return: Hexadecimal digest of hash
-    :rtype: str
+class LocalFile:
     """
 
-    # Limit the amount of data read into memory
-    file_buffer: int = 65536
+    """
+    def __init__(self, name: str, path: str, base_path: str):
 
-    sha256 = hashlib.sha256()
+        self.base_path = base_path
+        self.name = name
+        self.path = path
 
-    with open(file_path, 'rb') as f:
-        while True:
-            data = f.read(file_buffer)
-            if not data:
-                break
-            sha256.update(data)
+        self._sha256 = None
+        self._metadata = None
 
-    return sha256.hexdigest()
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+        logging.debug(str(self.__class__.__name__) + ".name = " + self._name)
+
+    @property
+    def base_path(self):
+        return self._base_path
+
+    @base_path.setter
+    def base_path(self, value):
+        self._base_path = value
+        logging.debug(str(self.__class__.__name__) + ".base_path = " + self._base_path)
+
+    @property
+    def path(self):
+        return self._path
+
+    @path.setter
+    def path(self, value):
+        self._path = value
+        logging.debug(str(self.__class__.__name__) + ".path = " + self._path)
+
+        self._full_path = self.path + "/" + self.name
+        logging.debug(str(self.__class__.__name__) + ".full_path = " + self._full_path)
+
+        relative_path = self.full_path.replace(self.base_path, "")
+        relative_path = re.sub('^/', '', relative_path)
+        relative_path = re.sub('^\./', '', relative_path)
+        self._relative_path = relative_path
+        logging.debug(str(self.__class__.__name__) + ".relative_path = " + self._relative_path)
+
+
+    @property
+    def full_path(self) -> str:
+        return self._full_path
+
+    @property
+    def relative_path(self) -> str:
+        return self._relative_path
+
+    @property
+    def sha256(self) -> str:
+        if self._sha256 is None:
+            self._sha256 = self.generate_sha256_hash()
+            logging.debug(str(self.__class__.__name__) + ".sha256 = " + self._sha256)
+        return self._sha256
+
+    @property
+    def hash(self) -> str:
+        return self.sha256
+
+    @property
+    def metadata(self) -> str:
+        if self._metadata is None:
+            self._metadata = {"Metadata": {"sha256": self.sha256}}
+        return self._metadata
+
+    def generate_sha256_hash(self) -> str:
+        """
+        Generate a SHA-256 cryptographic hash of file
+
+        :param file_path: File from which to obtain hash
+        :type file_path: str
+        :return: Hexadecimal digest of hash
+        :rtype: str
+        """
+
+        # Limit the amount of data read into memory
+        file_buffer: int = 65536
+
+        sha256 = hashlib.sha256()
+
+        with open(self.full_path, 'rb') as f:
+            while True:
+                data = f.read(file_buffer)
+                if not data:
+                    break
+                sha256.update(data)
+
+        return sha256.hexdigest()
 
 
 def s3_upload(file: str, bucket: str, obj_name: str, metadata: dict) -> float:
@@ -122,65 +200,33 @@ def _progress(filename: str, size: float, ops: str):
     return call
 
 
-def fs_get_files(directory: str, use_folders: bool) -> dict:
+def fs_get_files(directory: str):
     exclude_list: set[str] = {".DS_Store"}
     catalog: dict[str, str] = {}
+
+    file_catalog = []
 
     for (path, dirs, files) in os.walk(directory):
         if not any(x in files for x in exclude_list):
             for f in files:
-                full_path = path + "/" + f
-                if use_folders:
-                    key = full_path.replace(directory, "")
-                    key = re.sub('^/', '', key)
-                else:
-                    key = f
-                catalog[key] = full_path
-
-    return catalog
+                file_catalog.append(LocalFile(f, path, directory))
 
 
-def s3_put_files(catalog: dict, bucket: str) -> None:
-    client = boto3.client('s3')
+    return file_catalog
 
-    for file in catalog:
 
-        sha256 = sha256_file_hash(catalog[file])
-        m = {"Metadata": {"sha256": sha256}}
-
-        try:
-            s3_metadata = client.head_object(Bucket=bucket, Key=file)['Metadata']
-
-        except botocore.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == "404":
-                print(file + " does not exist in " + bucket)
-
-                elapsed_time = s3_upload(catalog[file], bucket, file, m)
-                print("Upload completed in " + str(elapsed_time) + " seconds.")
-                break
-
-        else:
-
-            s3_hash = s3_metadata['sha256']
-
-            if s3_hash == sha256:
-                print(file + " object exists in S3 with matching hash. Skipping...")
-            else:
-                print(file + " hash (" + sha256 + ") doesn't match S3 object (" + s3_hash + ").")
-                print("Uploading again...")
-
-                elapsed_time = s3_upload(catalog[file], bucket, file, m)
-                print("Upload completed in " + str(elapsed_time) + " seconds.")
-                break
 
 
 def main(argv):
     directory: str = ""
     bucket: str = ""
-    use_folders = False
+    file_limit: int = 0
+    time_limit: int = 0
+    use_folders: bool = False
+    random_shuffle:bool = False
 
     try:
-        opts, args = getopt.getopt(argv, "hd:b:f", ["directory=", "bucket="])
+        opts, args = getopt.getopt(argv, "hd:b:frl:t:", ["directory=", "bucket=", "file-limit=", "time-limit="])
 
     except getopt.GetoptError:
         print(sys.argv[0] + " -d <base directory> -b <S3 bucket>")
@@ -198,13 +244,76 @@ def main(argv):
         elif opt in ("-b", "--bucket"):
             bucket = arg
 
+        elif opt in ("-l", "--file-limit"):
+            try:
+                file_limit = int(arg)
+            except ValueError:
+                print("File upload limit is not an integer")
+                sys.exit(2)
+
+        elif opt in ("-t", "--time-limit"):
+            try:
+                time_limit = int(arg)
+            except ValueError:
+                print("Time limit is not an integer")
+                sys.exit(2)
+
         elif opt == "-f":
             use_folders = True
 
-    assert isinstance(bucket, str)
-    files: dict[str, str] = fs_get_files(directory, use_folders)
+        elif opt == "-r":
+            random_shuffle = True
 
-    return s3_put_files(files, bucket)
+    assert isinstance(bucket, str)
+    files = fs_get_files(directory)
+
+    if random_shuffle:
+        random.shuffle(files)
+
+
+    client = boto3.client('s3')
+
+    upload_count = 0
+    start_time = timer()
+
+    for file in files:
+
+        current_time = timer()
+        elapsed_seconds = round(current_time - start_time)
+
+        if elapsed_seconds >= time_limit or upload_count >= file_limit:
+            break
+
+
+        if use_folders:
+            key = file.relative_path
+        else:
+            key = file.name
+
+        try:
+            s3_metadata = client.head_object(Bucket=bucket, Key=key)['Metadata']
+
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                print(key + " does not exist in " + bucket)
+
+                elapsed_time = s3_upload(file.full_path, bucket, key, file.metadata)
+                print("Upload completed in " + str(elapsed_time) + " seconds.")
+                upload_count += 1
+
+        else:
+
+            s3_hash = s3_metadata['sha256']
+
+            if s3_hash == file.sha256:
+                print(key + " object exists in S3 with matching hash. Skipping...")
+            else:
+                print(key + " hash (" + file.sha256 + ") doesn't match S3 object (" + s3_hash + ").")
+                print("Uploading again...")
+
+                elapsed_time = s3_upload(file.full_path, bucket, key, file.metadata)
+                print("Upload completed in " + str(elapsed_time) + " seconds.")
+                upload_count += 1
 
 
 if __name__ == "__main__":
