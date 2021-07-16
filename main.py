@@ -40,7 +40,7 @@ from timeit import default_timer as timer
 import boto3.s3.transfer
 import botocore.exceptions
 
-logging.basicConfig(filename='/tmp/example.log', encoding='utf-8', level=logging.DEBUG)
+logging.basicConfig(filename='/tmp/s3.log', level=logging.INFO)
 
 class LocalFile:
     """
