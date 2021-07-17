@@ -36,11 +36,29 @@ import re
 import sys
 import threading
 from timeit import default_timer as timer
+from functools import reduce
 
 import boto3.s3.transfer
 import botocore.exceptions
 
-logging.basicConfig(filename='/tmp/s3.log', level=logging.INFO)
+
+logging.getLogger('botocore').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+logging.getLogger('s3transfer').setLevel(logging.CRITICAL)
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+# Use ISO 8601 timestamp standard
+formatter = logging.Formatter('%(asctime)s %(pathname)s[%(process)d] (%(name)s) %(levelname)s: %(message)s',
+                              '%Y-%m-%dT%H:%M:%S%z')
+
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.setLevel(logging.DEBUG)
+stdout_handler.setFormatter(formatter)
+
+logger.addHandler(stdout_handler)
+
 
 class LocalFile:
     """
@@ -48,12 +66,17 @@ class LocalFile:
     """
     def __init__(self, name: str, path: str, base_path: str):
 
+        # Use setters to validate input
         self.base_path = base_path
         self.name = name
         self.path = path
+        self.uploadable = False
 
+        # Allow lazy loading of these values
+        self._size = None
         self._sha256 = None
         self._metadata = None
+
 
     @property
     def name(self):
@@ -86,11 +109,10 @@ class LocalFile:
         logging.debug(str(self.__class__.__name__) + ".full_path = " + self._full_path)
 
         relative_path = self.full_path.replace(self.base_path, "")
-        relative_path = re.sub('^/', '', relative_path)
-        relative_path = re.sub('^\./', '', relative_path)
+        relative_path = re.sub(r'^/', '', relative_path)
+        relative_path = re.sub(r'^\./', '', relative_path)
         self._relative_path = relative_path
         logging.debug(str(self.__class__.__name__) + ".relative_path = " + self._relative_path)
-
 
     @property
     def full_path(self) -> str:
@@ -99,6 +121,13 @@ class LocalFile:
     @property
     def relative_path(self) -> str:
         return self._relative_path
+
+    @property
+    def size(self) -> float:
+        if self._size is None:
+            self._size = float(os.path.getsize(self.full_path))
+            logging.debug(str(self.__class__.__name__) + ".size = " + str(self._size))
+        return self._size
 
     @property
     def sha256(self) -> str:
@@ -111,21 +140,14 @@ class LocalFile:
     def hash(self) -> str:
         return self.sha256
 
+
     @property
-    def metadata(self) -> str:
+    def metadata(self) -> dict:
         if self._metadata is None:
             self._metadata = {"Metadata": {"sha256": self.sha256}}
         return self._metadata
 
     def generate_sha256_hash(self) -> str:
-        """
-        Generate a SHA-256 cryptographic hash of file
-
-        :param file_path: File from which to obtain hash
-        :type file_path: str
-        :return: Hexadecimal digest of hash
-        :rtype: str
-        """
 
         # Limit the amount of data read into memory
         file_buffer: int = 65536
@@ -140,6 +162,19 @@ class LocalFile:
                 sha256.update(data)
 
         return sha256.hexdigest()
+
+    @property
+    def uploadable(self):
+        return self._uploadable
+
+    @uploadable.setter
+    def uploadable(self, value):
+        if type(value) is bool:
+            self._uploadable = value
+        else:
+            logging.error("Trying to set variable to non-boolean type. Exiting...")
+            sys.exit(2)
+        logging.debug(str(self.__class__.__name__) + ".uploadable = " + str(self._uploadable))
 
 
 def s3_upload(file: str, bucket: str, obj_name: str, metadata: dict) -> float:
@@ -193,24 +228,21 @@ def _progress(filename: str, size: float, ops: str):
             percentage = (_seen_so_far / _size) * 100
 
             if _msg_count % _msg_throttle == 0:
-                print(f"{_ops}: {_filename}  {_seen_so_far} / {round(_size)}  ({percentage:.2f}%)")
+                logging.info(f"{_ops}: {_filename}  {_seen_so_far} / {round(_size)}  ({percentage:.2f}%)")
 
             _msg_count += 1
 
     return call
 
 
-def fs_get_files(directory: str):
+def fs_get_files(directory: str) -> list:
     exclude_list: set[str] = {".DS_Store"}
-    catalog: dict[str, str] = {}
-
-    file_catalog = []
+    file_catalog: list = []
 
     for (path, dirs, files) in os.walk(directory):
         if not any(x in files for x in exclude_list):
             for f in files:
                 file_catalog.append(LocalFile(f, path, directory))
-
 
     return file_catalog
 
@@ -218,15 +250,20 @@ def fs_get_files(directory: str):
 
 
 def main(argv):
+
     directory: str = ""
     bucket: str = ""
+
     file_limit: int = 0
     time_limit: int = 0
+    size_limit: int = 0
+
     use_folders: bool = False
-    random_shuffle:bool = False
+    random_shuffle: bool = False
 
     try:
-        opts, args = getopt.getopt(argv, "hd:b:frl:t:", ["directory=", "bucket=", "file-limit=", "time-limit="])
+        opts, args = getopt.getopt(argv, "hd:b:fl:rs:t:",
+                                   ["directory=", "bucket=", "file-limit=", "size-limit=", "time-limit="])
 
     except getopt.GetoptError:
         print(sys.argv[0] + " -d <base directory> -b <S3 bucket>")
@@ -247,15 +284,25 @@ def main(argv):
         elif opt in ("-l", "--file-limit"):
             try:
                 file_limit = int(arg)
+                logging.debug("File limit set to: " + str(file_limit))
             except ValueError:
-                print("File upload limit is not an integer")
+                logging.error("File limit is not an integer")
+                sys.exit(2)
+
+        elif opt in ("-s", "--size-limit"):
+            try:
+                size_limit = int(arg)
+                logging.debug("Size limit set to: " + str(size_limit))
+            except ValueError:
+                logging.error("Size limit is not an integer")
                 sys.exit(2)
 
         elif opt in ("-t", "--time-limit"):
             try:
                 time_limit = int(arg)
+                logging.debug("Time limit set to: " + str(time_limit))
             except ValueError:
-                print("Time limit is not an integer")
+                logging.error("Time limit is not an integer")
                 sys.exit(2)
 
         elif opt == "-f":
@@ -270,51 +317,61 @@ def main(argv):
     if random_shuffle:
         random.shuffle(files)
 
-
     client = boto3.client('s3')
-
-    upload_count = 0
     start_time = timer()
+    file_sizes = []
 
     for file in files:
 
-        current_time = timer()
-        elapsed_seconds = round(current_time - start_time)
-
-        if elapsed_seconds >= time_limit or upload_count >= file_limit:
+        if len(file_sizes) >= file_limit:
+            logging.warning("File upload limit reached. Exiting...")
             break
 
+        if len(file_sizes) > 0:
+            total_data_uploaded = round(reduce(lambda x,y:x+y, file_sizes))
+            if size_limit > 0 and total_data_uploaded >= size_limit:
+                for msg in [str(round(x)) + " bytes" for x in file_sizes]:
+                    logging.debug("Uploaded file of size " + msg)
+                logging.debug("Total data uploaded = " + str(total_data_uploaded) + " bytes")
+                logging.warning("Upload size limit reached. Exiting...")
+                break
+
+        current_time = timer()
+        elapsed_seconds = round(current_time - start_time)
+        logging.debug("Elapsed time: " + str(elapsed_seconds) + " seconds")
+
+        if elapsed_seconds >= time_limit:
+            logging.warning("Upload time limit reached. Exiting...")
+            break
 
         if use_folders:
             key = file.relative_path
         else:
             key = file.name
 
+        logging.debug("Using " + key + " as S3 object key.")
+
         try:
             s3_metadata = client.head_object(Bucket=bucket, Key=key)['Metadata']
 
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
-                print(key + " does not exist in " + bucket)
-
-                elapsed_time = s3_upload(file.full_path, bucket, key, file.metadata)
-                print("Upload completed in " + str(elapsed_time) + " seconds.")
-                upload_count += 1
+                logging.info(key + " does not exist in " + bucket)
+                file.uploadable = True
 
         else:
 
-            s3_hash = s3_metadata['sha256']
-
-            if s3_hash == file.sha256:
-                print(key + " object exists in S3 with matching hash. Skipping...")
+            if s3_metadata['sha256'] == file.sha256:
+                logging.info(key + " object exists in S3 with matching hash. Skipping...")
             else:
-                print(key + " hash (" + file.sha256 + ") doesn't match S3 object (" + s3_hash + ").")
-                print("Uploading again...")
+                logging.info(key + " hash (" + file.sha256 + ") doesn't match S3 object (" + s3_hash + ").")
+                logging.info("Uploading again...")
+                file.uploadable = True
 
-                elapsed_time = s3_upload(file.full_path, bucket, key, file.metadata)
-                print("Upload completed in " + str(elapsed_time) + " seconds.")
-                upload_count += 1
-
+        if file.uploadable:
+            elapsed_time = s3_upload(file.full_path, bucket, key, file.metadata)
+            logging.info("Upload completed in " + str(elapsed_time) + " seconds.")
+            file_sizes.append(file.size)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
