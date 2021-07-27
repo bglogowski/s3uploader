@@ -1,3 +1,12 @@
+import threading
+from timeit import default_timer as timer
+
+import boto3.s3.transfer
+import botocore.exceptions
+
+from s3uploader import log
+from s3uploader.common.files import LocalFile
+
 
 class S3Bucket(object):
 
@@ -13,11 +22,15 @@ class S3Bucket(object):
     @name.setter
     def name(self, value):
         self._name = value
-        logging.debug(str(self.__class__.__name__) + ".name = " + self._name)
+        log.debug(str(self.__class__.__name__) + ".name = " + self._name)
 
     def upload(self, file: LocalFile) -> float:
         start = timer()
-        self._transfer.upload_file(file.full_path, self.name, file.s3key, extra_args=file.metadata, callback=self._progress(file, "Upload"))
+        self._transfer.upload_file(file.full_path,
+                                   self.name,
+                                   file.s3key,
+                                   extra_args=file.metadata,
+                                   callback=self._progress(file, "Upload"))
         end = timer()
 
         return end - start
@@ -27,14 +40,11 @@ class S3Bucket(object):
             metadata = self._client.head_object(Bucket=self.name, Key=key)['Metadata']
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
-                logging.info(key + " does not exist in " + self.name)
+                log.info(key + " does not exist in " + self.name)
                 return None
         else:
-            logging.info(key + " found in " + self.name)
+            log.info(key + " found in " + self.name)
             return metadata
-
-
-
 
     @staticmethod
     def _progress(file: LocalFile, ops: str):
@@ -54,7 +64,7 @@ class S3Bucket(object):
                 percentage = (_seen_so_far / file.size) * 100
 
                 if _msg_count % _msg_throttle == 0:
-                    logging.info(f"{_ops}: {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops}: {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
 
                 _msg_count += 1
 
