@@ -1,5 +1,3 @@
-s3uploader
-
 Copyright (c) 2021 Bryan Glogowski
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
