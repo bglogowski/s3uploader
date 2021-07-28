@@ -20,7 +20,7 @@ stdout_handler.setFormatter(formatter)
 log = logging.getLogger()
 
 # Set the logging level to INFO
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 
 # Set the destination to the console
 log.addHandler(stdout_handler)
