@@ -99,7 +99,7 @@ def run(argv):
             random_shuffle = True
 
     # Ensure a bucket name was specified
-    assert isinstance(bucket_name, str)
+    #assert isinstance(bucket_name, str)
     bucket = S3Bucket(bucket_name)
 
     # Get a list of files to upload
