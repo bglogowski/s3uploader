@@ -46,7 +46,7 @@ class LocalFile(object):
                     break
                 sha256.update(data)
 
-        log.debug(str(__class__.__name__) + ".sha256 = " + sha256.hexdigest())
+        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + sha256.hexdigest())
         return sha256.hexdigest()
 
     @property
@@ -56,7 +56,7 @@ class LocalFile(object):
     @base_path.setter
     def base_path(self, value):
         self._base_path = value
-        log.debug(str(self.__class__.__name__) + ".base_path = " + self._base_path)
+        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._base_path)
 
     @property
     def full_path(self) -> str:
@@ -66,7 +66,7 @@ class LocalFile(object):
     def hash(self) -> str:
         if self._hash is None:
             self._hash = self.sha256(self.full_path)
-            log.debug(str(self.__class__.__name__) + ".hash = " + self._hash)
+            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._hash)
         return self._hash
 
     @property
@@ -82,7 +82,7 @@ class LocalFile(object):
     @name.setter
     def name(self, value):
         self._name = value
-        log.debug(str(self.__class__.__name__) + ".name = " + self._name)
+        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._name)
 
     @property
     def path(self):
@@ -91,16 +91,16 @@ class LocalFile(object):
     @path.setter
     def path(self, value):
         self._path = value
-        log.debug(str(self.__class__.__name__) + ".path = " + self._path)
+        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._path)
 
         self._full_path = self.path + "/" + self.name
-        log.debug(str(self.__class__.__name__) + ".full_path = " + self._full_path)
+        log.debug(self.__class__.__name__ + ".full_path = " + self._full_path)
 
         relative_path = self.full_path.replace(self.base_path, "")
         relative_path = re.sub(r'^/', '', relative_path)
         relative_path = re.sub(r'^\./', '', relative_path)
         self._relative_path = relative_path
-        log.debug(str(self.__class__.__name__) + ".relative_path = " + self._relative_path)
+        log.debug(self.__class__.__name__ + ".relative_path = " + self._relative_path)
 
     @property
     def relative_path(self) -> str:
@@ -113,13 +113,13 @@ class LocalFile(object):
     @s3key.setter
     def s3key(self, value):
         self._s3key = value
-        log.debug(str(self.__class__.__name__) + ".s3key = " + self._s3key)
+        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._s3key)
 
     @property
     def size(self) -> float:
         if self._size is None:
             self._size = float(os.path.getsize(self.full_path))
-            log.debug(str(self.__class__.__name__) + ".size = " + str(self._size))
+            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + str(self._size))
         return self._size
 
     @property
@@ -130,7 +130,8 @@ class LocalFile(object):
     def uploadable(self, value):
         if type(value) is bool:
             self._uploadable = value
+            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + str(self._uploadable))
         else:
-            log.error("Trying to set variable to non-boolean type. Exiting...")
-            sys.exit(2)
-        log.debug(str(self.__class__.__name__) + ".uploadable = " + str(self._uploadable))
+            log.error("Invalid setting for " + self.__class__.__name__ + "." + sys._getframe().f_code.co_name)
+            raise ValueError("Trying to set variable to non-boolean type.")
+
