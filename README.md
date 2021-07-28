@@ -77,3 +77,16 @@ SHA-256 was chosen because MD5 and SHA-1 are compromised and
 therefore unreliable measures of file integrity. SHA-256 is
 also reasonably performant as compared to alternative hash
 algorithms.
+
+### Creating a virtual environment in your home directory
+```bash
+$ cd ~
+$ python3.9 -m venv `pwd`/s3uploader
+$ cd s3uploader
+$ . bin/activate
+$ git clone https://github.com/bglogowski/s3uploader.git
+$ cd s3uploader
+$ pip install -r s3uploader/requirements.txt
+$ python -m s3uploader --bucket amazon-s3-bucket-name -d /path/to/files -f -r --file-limit 2 --time-limit 14400
+
+```
