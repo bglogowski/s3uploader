@@ -1,5 +1,7 @@
 # S3 Uploader
-Uploads files from the local filesystem to S3 using the name of the file (and optionally the relative path) as an S3 object key.
+
+Uploads local files to S3 while optionally retaining the local relative directory structure.
+
 
 ## REQUIREMENTS
 
@@ -54,3 +56,24 @@ Use folders for S3 object keys
 Randomize file list
 Tries to upload the files in random order
 
+## NOTES
+
+### S3 Folder Structure
+
+S3 is not a filesystem, it is an object store. Therefore,
+the default behavior is simply to upload files as objects
+into a bucket using a flat namespace. However, owing to
+the complexity of real world data, the script will optionally
+organize the data in S3 using the local directory structure.
+
+### File integrity checks
+
+S3 Etags cannot be guaranteed to be MD5 hashes of the original
+file, such as when multi-part uploads are used to create the
+object. Therefore a cryptographic hash of the original file
+will be stored as metadata of the S3 object.
+
+SHA-256 was chosen because MD5 and SHA-1 are compromised and
+therefore unreliable measures of file integrity. SHA-256 is
+also reasonably performant as compared to alternative hash
+algorithms.
