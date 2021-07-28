@@ -45,8 +45,6 @@ logging.getLogger('botocore').setLevel(logging.CRITICAL)
 logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 logging.getLogger('s3transfer').setLevel(logging.CRITICAL)
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 # Use ISO 8601 timestamp standard
 formatter = logging.Formatter('%(asctime)s %(pathname)s[%(process)d] (%(name)s) %(levelname)s: %(message)s',
@@ -56,7 +54,9 @@ stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.DEBUG)
 stdout_handler.setFormatter(formatter)
 
-logger.addHandler(stdout_handler)
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+log.addHandler(stdout_handler)
 
 
 class LocalFile(object):
@@ -99,7 +99,7 @@ class LocalFile(object):
                     break
                 sha256.update(data)
 
-        logging.debug(str(__class__.__name__) + ".sha256 = " + sha256.hexdigest())
+        log.debug(str(__class__.__name__) + ".sha256 = " + sha256.hexdigest())
         return sha256.hexdigest()
 
     @property
@@ -109,7 +109,7 @@ class LocalFile(object):
     @base_path.setter
     def base_path(self, value):
         self._base_path = value
-        logging.debug(str(self.__class__.__name__) + ".base_path = " + self._base_path)
+        log.debug(str(self.__class__.__name__) + ".base_path = " + self._base_path)
 
     @property
     def full_path(self) -> str:
@@ -119,7 +119,7 @@ class LocalFile(object):
     def hash(self) -> str:
         if self._hash is None:
             self._hash = self.sha256(self.full_path)
-            logging.debug(str(self.__class__.__name__) + ".hash = " + self._hash)
+            log.debug(str(self.__class__.__name__) + ".hash = " + self._hash)
         return self._hash
 
     @property
@@ -135,7 +135,7 @@ class LocalFile(object):
     @name.setter
     def name(self, value):
         self._name = value
-        logging.debug(str(self.__class__.__name__) + ".name = " + self._name)
+        log.debug(str(self.__class__.__name__) + ".name = " + self._name)
 
     @property
     def path(self):
@@ -144,16 +144,16 @@ class LocalFile(object):
     @path.setter
     def path(self, value):
         self._path = value
-        logging.debug(str(self.__class__.__name__) + ".path = " + self._path)
+        log.debug(str(self.__class__.__name__) + ".path = " + self._path)
 
         self._full_path = self.path + "/" + self.name
-        logging.debug(str(self.__class__.__name__) + ".full_path = " + self._full_path)
+        log.debug(str(self.__class__.__name__) + ".full_path = " + self._full_path)
 
         relative_path = self.full_path.replace(self.base_path, "")
         relative_path = re.sub(r'^/', '', relative_path)
         relative_path = re.sub(r'^\./', '', relative_path)
         self._relative_path = relative_path
-        logging.debug(str(self.__class__.__name__) + ".relative_path = " + self._relative_path)
+        log.debug(str(self.__class__.__name__) + ".relative_path = " + self._relative_path)
 
     @property
     def relative_path(self) -> str:
@@ -166,13 +166,13 @@ class LocalFile(object):
     @s3key.setter
     def s3key(self, value):
         self._s3key = value
-        logging.debug(str(self.__class__.__name__) + ".s3key = " + self._s3key)
+        log.debug(str(self.__class__.__name__) + ".s3key = " + self._s3key)
 
     @property
     def size(self) -> float:
         if self._size is None:
             self._size = float(os.path.getsize(self.full_path))
-            logging.debug(str(self.__class__.__name__) + ".size = " + str(self._size))
+            log.debug(str(self.__class__.__name__) + ".size = " + str(self._size))
         return self._size
 
     @property
@@ -184,9 +184,9 @@ class LocalFile(object):
         if type(value) is bool:
             self._uploadable = value
         else:
-            logging.error("Trying to set variable to non-boolean type. Exiting...")
+            log.error("Trying to set variable to non-boolean type. Exiting...")
             sys.exit(2)
-        logging.debug(str(self.__class__.__name__) + ".uploadable = " + str(self._uploadable))
+        log.debug(str(self.__class__.__name__) + ".uploadable = " + str(self._uploadable))
 
 
 class S3Bucket(object):
@@ -203,7 +203,7 @@ class S3Bucket(object):
     @name.setter
     def name(self, value):
         self._name = value
-        logging.debug(str(self.__class__.__name__) + ".name = " + self._name)
+        log.debug(str(self.__class__.__name__) + ".name = " + self._name)
 
     def upload(self, file: LocalFile) -> float:
         start = timer()
@@ -217,10 +217,10 @@ class S3Bucket(object):
             metadata = self._client.head_object(Bucket=self.name, Key=key)['Metadata']
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
-                logging.info(key + " does not exist in " + self.name)
+                log.info(key + " does not exist in " + self.name)
                 return None
         else:
-            logging.info(key + " found in " + self.name)
+            log.info(key + " found in " + self.name)
             return metadata
 
 
@@ -244,7 +244,7 @@ class S3Bucket(object):
                 percentage = (_seen_so_far / file.size) * 100
 
                 if _msg_count % _msg_throttle == 0:
-                    logging.info(f"{_ops}: {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops}: {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
 
                 _msg_count += 1
 
@@ -255,14 +255,14 @@ class S3Bucket(object):
 
 def fs_get_files(directory: str) -> list:
     exclude_list: set[str] = {".DS_Store"}
-    file_catalog: list = []
+    file_list: list = []
 
     for (path, dirs, files) in os.walk(directory):
         if not any(x in files for x in exclude_list):
             for f in files:
-                file_catalog.append(LocalFile(f, path, directory))
+                file_list.append(LocalFile(f, path, directory))
 
-    return file_catalog
+    return file_list
 
 
 def main(argv):
@@ -304,25 +304,25 @@ def main(argv):
         elif opt in ("-l", "--file-limit"):
             try:
                 file_limit = int(arg)
-                logging.debug("File limit set to: " + str(file_limit))
+                log.debug("File limit set to: " + str(file_limit))
             except ValueError:
-                logging.error("File limit is not an integer")
+                log.error("File limit is not an integer")
                 sys.exit(2)
 
         elif opt in ("-s", "--size-limit"):
             try:
                 size_limit = int(arg)
-                logging.debug("Size limit set to: " + str(size_limit))
+                log.debug("Size limit set to: " + str(size_limit))
             except ValueError:
-                logging.error("Size limit is not an integer")
+                log.error("Size limit is not an integer")
                 sys.exit(2)
 
         elif opt in ("-t", "--time-limit"):
             try:
                 time_limit = int(arg)
-                logging.debug("Time limit set to: " + str(time_limit))
+                log.debug("Time limit set to: " + str(time_limit))
             except ValueError:
-                logging.error("Time limit is not an integer")
+                log.error("Time limit is not an integer")
                 sys.exit(2)
 
         elif opt == "-f":
@@ -341,30 +341,30 @@ def main(argv):
     for file in files:
 
         if len(file_sizes) >= file_limit:
-            logging.warning("File upload limit reached. Exiting...")
+            log.warning("File upload limit reached. Exiting...")
             break
 
         if len(file_sizes) > 0:
             total_data_uploaded = reduce(lambda x, y: round(x + y), file_sizes)
             if size_limit > 0 and total_data_uploaded >= size_limit:
                 for msg in [str(round(x)) + " bytes" for x in file_sizes]:
-                    logging.debug("Uploaded file of size " + msg)
-                logging.debug("Total data uploaded = " + str(total_data_uploaded) + " bytes")
-                logging.warning("Upload size limit reached. Exiting...")
+                    log.debug("Uploaded file of size " + msg)
+                log.debug("Total data uploaded = " + str(total_data_uploaded) + " bytes")
+                log.warning("Upload size limit reached. Exiting...")
                 break
 
         elapsed_seconds = round(timer() - start_time)
-        logging.debug("Elapsed time: " + str(elapsed_seconds) + " seconds")
+        log.debug("Elapsed time: " + str(elapsed_seconds) + " seconds")
 
         if elapsed_seconds >= time_limit:
-            logging.warning("Upload time limit reached. Exiting...")
+            log.warning("Upload time limit reached. Exiting...")
             break
 
         if use_folders:
             file.s3key = file.relative_path
 
 
-        logging.debug("Using " + file.s3key + " as S3 object key.")
+        log.debug("Using " + file.s3key + " as S3 object key.")
 
         s3_object_metadata = bucket.metadata(file.s3key)
 
@@ -373,22 +373,22 @@ def main(argv):
         else:
 
             if s3_object_metadata["sha256"] == file.hash:
-                logging.info(file.s3key + " object exists in S3 with matching hash. Skipping...")
+                log.info(file.s3key + " object exists in S3 with matching hash. Skipping...")
             else:
-                logging.info(file.s3key +
+                log.info(file.s3key +
                              " hash (" +
                              file.hash +
                              ") doesn't match S3 object (" +
                              s3_object_metadata["sha256"] + ").")
 
                 file.uploadable = True
-                logging.info("Uploading again...")
+                log.info("Uploading again...")
 
 
         if file.uploadable:
             elapsed_time = bucket.upload(file)
             file_sizes.append(file.size)
-            logging.info("Upload completed in " + str(elapsed_time) + " seconds.")
+            log.info("Upload completed in " + str(elapsed_time) + " seconds.")
 
 
 
