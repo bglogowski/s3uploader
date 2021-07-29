@@ -1,5 +1,4 @@
 import getopt
-import math
 import os
 import random
 import sys
@@ -99,8 +98,7 @@ def run(argv):
         elif opt == "-r":
             random_shuffle = True
 
-    # Ensure a bucket name was specified
-    #assert isinstance(bucket_name, str)
+    # Create a Bucket object
     bucket = S3Bucket(bucket_name)
 
     # Get a list of files to upload
@@ -153,7 +151,8 @@ def run(argv):
         else:
 
             if s3_object_metadata["sha256"] == file.hash:
-                log.info("Object [" + file.s3key + "] in S3 Bucket [" + bucket.name + "] has matching hash. Skipping...")
+                log.info("Object [" + file.s3key + "] in S3 Bucket [" +
+                         bucket.name + "] has matching hash. Skipping...")
             else:
                 log.info("File hash doesn't match Object hash in S3 Bucket")
                 log.debug("File " + file.s3key + " hash = " + file.hash)
@@ -165,9 +164,9 @@ def run(argv):
         if file.uploadable:
             original_size = bucket.size
             elapsed_time = bucket.upload(file)
-            post_upload_size = bucket.size
-            percent = ((float(post_upload_size) / float(original_size)) - 1) * 100
-            file_sizes.append(file.size)
-            log.info("Upload completed in " + str(round(elapsed_time, 2)) + " seconds")
-            log.info("S3 Bucket size increased by " + str(round(percent, 2)) + "%")
 
+            bucket_percent_increase = ((float(bucket.size) / float(original_size)) - 1) * 100
+            file_sizes.append(file.size)
+
+            log.info("Upload completed in " + str(round(elapsed_time, 2)) + " seconds")
+            log.info("S3 Bucket size increased by " + str(round(bucket_percent_increase, 2)) + "%")
