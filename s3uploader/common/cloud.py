@@ -9,6 +9,7 @@ from s3uploader.common.files import LocalFile
 from timeit import default_timer as timer
 
 
+
 class CloudError(Exception):
     """Base class for exceptions in this module."""
 
@@ -18,20 +19,38 @@ class CloudError(Exception):
 
 class S3Bucket(object):
 
-    def __init__(self, name: str):
-        if self.valid_name(name):
-            self.name = name
-        else:
-            log.error(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + name)
-            raise ValueError("S3 Bucket name " + name + " is not valid")
+    def __init__(self, name: str, region=None):
 
-        self._client = boto3.client('s3')
-        self._transfer = boto3.s3.transfer.S3Transfer(self._client)
+
+        self.name = name
+
+
+        if region is None:
+            self._client = boto3.client('s3')
+        else:
+            self._client = boto3.client('s3', region_name=region)
 
         self._session = boto3.session.Session()
         self._region = self._session.region_name
-
+        self._transfer = boto3.s3.transfer.S3Transfer(self._client)
         self._is_valid = False
+
+    def _identify(self):
+        return self.__class__.__name__ + "." + sys._getframe(1).f_code.co_name
+
+    def create(self, region=None) -> bool:
+
+        try:
+            if region is None:
+                self._client.create_bucket(Bucket=self.name)
+            else:
+                location = {'LocationConstraint': region}
+                self._client.create_bucket(Bucket=self.name, CreateBucketConfiguration=location)
+                self._region = region
+        except ClientError as e:
+            log.error(e)
+            return False
+        return True
 
     @property
     def name(self):
@@ -39,12 +58,13 @@ class S3Bucket(object):
 
     @name.setter
     def name(self, value):
+
         if self.valid_name(value):
             self._name = value
-            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._name)
+            log.debug(self._identify() + " = " + self._name)
         else:
-            log.error(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + value)
-            raise ValueError("S3 Bucket name is not valid.")
+            log.error(self._identify() + " = " + value)
+            raise ValueError("S3 Bucket name [" + value + "] is not valid.")
 
     def upload(self, file: LocalFile) -> float:
         if self.valid_bucket():
@@ -61,7 +81,7 @@ class S3Bucket(object):
 
             return timer() - start
         else:
-            raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
+            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
 
     def metadata(self, key: str):
         if self.valid_bucket():
@@ -70,12 +90,12 @@ class S3Bucket(object):
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == "404":
                     log.info(
-                        "Object " + key + " does not exist in S3 Bucket " + self.name + " in AWS Region " + self.region)
+                        "Object [" + key + "] does not exist in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
                     return None
                 else:
                     raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
             else:
-                log.info("Object " + key + " was found in S3 Bucket " + self.name + " in AWS Region " + self.region)
+                log.info("Object [" + key + "] was found in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
                 return response
         else:
             raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
@@ -88,13 +108,13 @@ class S3Bucket(object):
                 self._client.head_bucket(Bucket=self.name)
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == "404":
-                    log.error("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
+                    log.error("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
                     return False
                 else:
                     raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
             else:
                 self._is_valid = True
-                log.info("S3 Bucket " + self.name + " was found in AWS Region " + self.region)
+                log.info("S3 Bucket [" + self.name + "] was found in AWS Region [" + self.region + "]")
                 return True
 
     @property
@@ -109,36 +129,41 @@ class S3Bucket(object):
                 bucket_size = sum(obj['Size'] for obj in response)
                 return bucket_size
             except ClientError as e:
-                log.error(e)
+                log.error("AWS responded with: " + e)
                 return 0
         else:
-            raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
+            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
 
     @staticmethod
     def valid_name(value: str) -> bool:
 
+        log_prefix = "S3 Bucket name [" + str(value) + "]"
+
         # Make sure input is a string
         if not type(value) == str:
-            log.error("S3 Bucket name is not a string: " + str(value))
+            log.error(error_prefix + " is not a string")
             return False
 
         # The string must be between 3 and 63 characters long
-        if len(value) < 3 or len(value) > 63:
-            log.error("S3 Bucket name is " + str(len(value)) + " characters long: it must be > 2 and < 64")
+        if len(value) < 3:
+            log.error(log_prefix + " is too short: it must be more than 2 characters")
+            return False
+        if len(value) > 63:
+            log.error(log_prefix + " is too long: it must be fewer than 64 characters")
             return False
 
         # The first and last characters may not be a hyphen
         if value.startswith("-") or value.endswith("-"):
-            log.error("S3 Bucket name cannot begin or end with a hyphen")
+            log.error(log_prefix + " cannot begin or end with a hyphen")
             return False
 
         # All characters must be lowercase alphanumeric or a hyphen
         valid_characters = re.compile(r'[^a-z0-9-]').search
         if bool(valid_characters(value)):
-            log.error("S3 Bucket name contains invalid characters: " + value)
+            log.error(log_prefix + " contains invalid characters")
             return False
         else:
-            log.debug("Name validation passed for S3 Bucket " + value)
+            log.info(log_prefix + " passed validation")
             return True
 
     @staticmethod
@@ -157,7 +182,7 @@ class S3Bucket(object):
                 _seen_so_far += bytes_amount
                 percentage = (_seen_so_far / file.size) * 100
                 if _msg_count % _msg_throttle == 0 or int(percentage) == 100:
-                    log.info(f"{_ops} {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops} [{file.name}]  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
                 _msg_count += 1
 
         return call
