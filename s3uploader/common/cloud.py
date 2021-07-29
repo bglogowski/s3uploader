@@ -1,19 +1,20 @@
-import threading
-from timeit import default_timer as timer
-import re
-import sys
-
 import boto3.s3.transfer
 import botocore.exceptions
+import re
+import sys
+import threading
 
 from s3uploader import log
 from s3uploader.common.files import LocalFile
+from timeit import default_timer as timer
+
 
 class CloudError(Exception):
     """Base class for exceptions in this module."""
 
     def __init__(self, message):
         self.message = message
+
 
 class S3Bucket(object):
 
@@ -22,7 +23,7 @@ class S3Bucket(object):
             self.name = name
         else:
             log.error(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + name)
-            raise ValueError("S3 Bucket name is not valid.")
+            raise ValueError("S3 Bucket name " + name + " is not valid")
 
         self._client = boto3.client('s3')
         self._transfer = boto3.s3.transfer.S3Transfer(self._client)
@@ -30,7 +31,7 @@ class S3Bucket(object):
         self._session = boto3.session.Session()
         self._region = self._session.region_name
 
-
+        self._is_valid = False
 
     @property
     def name(self):
@@ -49,11 +50,11 @@ class S3Bucket(object):
         if self.valid_bucket():
             start = timer()
             try:
-                response = self._transfer.upload_file(file.full_path,
-                                   self.name,
-                                   file.s3key,
-                                   extra_args=file.metadata,
-                                   callback=self._progress(file, "Upload"))
+                self._transfer.upload_file(file.full_path,
+                                           self.name,
+                                           file.s3key,
+                                           extra_args=file.metadata,
+                                           callback=self._progress(file, "Uploading"))
             except ClientError as e:
                 log.error(e)
                 return timer() - start
@@ -62,14 +63,14 @@ class S3Bucket(object):
         else:
             raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
 
-
     def metadata(self, key: str):
         if self.valid_bucket():
             try:
                 response = self._client.head_object(Bucket=self.name, Key=key)['Metadata']
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == "404":
-                    log.info("Object " + key + " does not exist in S3 Bucket " + self.name + " in AWS Region " + self.region)
+                    log.info(
+                        "Object " + key + " does not exist in S3 Bucket " + self.name + " in AWS Region " + self.region)
                     return None
                 else:
                     raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
@@ -80,21 +81,38 @@ class S3Bucket(object):
             raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
 
     def valid_bucket(self) -> bool:
-        try:
-            result = self._client.head_bucket(Bucket=self.name)
-        except botocore.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == "404":
-                log.error("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
-                return False
-            else:
-                raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
-        else:
-            log.info("S3 Bucket " + self.name + " was found in AWS Region " + self.region)
+        if self._is_valid:
             return True
+        else:
+            try:
+                self._client.head_bucket(Bucket=self.name)
+            except botocore.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == "404":
+                    log.error("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
+                    return False
+                else:
+                    raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
+            else:
+                self._is_valid = True
+                log.info("S3 Bucket " + self.name + " was found in AWS Region " + self.region)
+                return True
 
     @property
     def region(self):
         return self._region
+
+    @property
+    def size(self):
+        if self.valid_bucket():
+            try:
+                response = self._client.list_objects(Bucket=self.name)['Contents']
+                bucket_size = sum(obj['Size'] for obj in response)
+                return bucket_size
+            except ClientError as e:
+                log.error(e)
+                return 0
+        else:
+            raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
 
     @staticmethod
     def valid_name(value: str) -> bool:
@@ -106,12 +124,12 @@ class S3Bucket(object):
 
         # The string must be between 3 and 63 characters long
         if len(value) < 3 or len(value) > 63:
-            log.error("S3 Bucket name is " + str(len(value)) + " characters long: it must be > 2 and < 64" )
+            log.error("S3 Bucket name is " + str(len(value)) + " characters long: it must be > 2 and < 64")
             return False
 
         # The first and last characters may not be a hyphen
         if value.startswith("-") or value.endswith("-"):
-            log.error("S3 Bucket name cannot begin or end with a hyphon")
+            log.error("S3 Bucket name cannot begin or end with a hyphen")
             return False
 
         # All characters must be lowercase alphanumeric or a hyphen
@@ -139,7 +157,7 @@ class S3Bucket(object):
                 _seen_so_far += bytes_amount
                 percentage = (_seen_so_far / file.size) * 100
                 if _msg_count % _msg_throttle == 0 or int(percentage) == 100:
-                    log.info(f"{_ops}: {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops} {file.name}  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
                 _msg_count += 1
 
         return call
