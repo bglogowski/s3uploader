@@ -46,7 +46,7 @@ class LocalFile(object):
                     break
                 sha256.update(data)
 
-        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + sha256.hexdigest())
+        log.debug(__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + sha256.hexdigest())
         return sha256.hexdigest()
 
     @property
@@ -132,6 +132,5 @@ class LocalFile(object):
             self._uploadable = value
             log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + str(self._uploadable))
         else:
-            log.error("Invalid setting for " + self.__class__.__name__ + "." + sys._getframe().f_code.co_name)
-            raise ValueError("Trying to set variable to non-boolean type.")
+            raise ValueError("Cannot set " + self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " to non-boolean type.")
 
