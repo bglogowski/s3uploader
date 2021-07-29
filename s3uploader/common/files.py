@@ -24,10 +24,8 @@ class LocalFile(object):
         self._hash = None
         self._metadata = None
 
-    @classmethod
-    def from_csv(cls, text: str):
-        name, path, base_path = [v.strip() for v in text.split(',')]
-        return cls(name, path, base_path)
+    def _identify(self):
+        return self.__class__.__name__ + "." + sys._getframe(1).f_code.co_name
 
     @staticmethod
     def exists(path: str) -> bool:
@@ -46,7 +44,10 @@ class LocalFile(object):
                     break
                 sha256.update(data)
 
-        log.debug(__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + sha256.hexdigest())
+        log.debug(__class__.__name__ + "." +
+                  sys._getframe().f_code.co_name + " = " +
+                  sha256.hexdigest())
+
         return sha256.hexdigest()
 
     @property
@@ -56,7 +57,7 @@ class LocalFile(object):
     @base_path.setter
     def base_path(self, value):
         self._base_path = value
-        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._base_path)
+        log.debug(self._identify() + " = " + self._base_path)
 
     @property
     def full_path(self) -> str:
@@ -66,7 +67,7 @@ class LocalFile(object):
     def hash(self) -> str:
         if self._hash is None:
             self._hash = self.sha256(self.full_path)
-            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._hash)
+            log.debug(self._identify() + " = " + self._hash)
         return self._hash
 
     @property
@@ -82,7 +83,7 @@ class LocalFile(object):
     @name.setter
     def name(self, value):
         self._name = value
-        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._name)
+        log.debug(self._identify() + " = " + self._name)
 
     @property
     def path(self):
@@ -91,7 +92,7 @@ class LocalFile(object):
     @path.setter
     def path(self, value):
         self._path = value
-        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._path)
+        log.debug(self._identify() + " = " + self._path)
 
         self._full_path = self.path + "/" + self.name
         log.debug(self.__class__.__name__ + ".full_path = " + self._full_path)
@@ -113,13 +114,13 @@ class LocalFile(object):
     @s3key.setter
     def s3key(self, value):
         self._s3key = value
-        log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + self._s3key)
+        log.debug(self._identify() + " = " + self._s3key)
 
     @property
     def size(self) -> float:
         if self._size is None:
             self._size = float(os.path.getsize(self.full_path))
-            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + str(self._size))
+            log.debug(self._identify() + " = " + str(self._size))
         return self._size
 
     @property
@@ -130,7 +131,7 @@ class LocalFile(object):
     def uploadable(self, value):
         if type(value) is bool:
             self._uploadable = value
-            log.debug(self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " = " + str(self._uploadable))
+            log.debug(self._identify() + " = " + str(self._uploadable))
         else:
-            raise ValueError("Cannot set " + self.__class__.__name__ + "." + sys._getframe().f_code.co_name + " to non-boolean type.")
+            raise ValueError("Cannot set " + self._identify() + " to non-boolean type.")
 
