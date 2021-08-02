@@ -48,7 +48,7 @@ class S3Bucket(object):
         self._objects = None
         self._object_metadata_cache = {}
 
-    def create(self, region=None) -> bool:
+    def create(self) -> bool:
         """
 
         :param region:
@@ -57,12 +57,19 @@ class S3Bucket(object):
         """
 
         try:
-            if region is None:
-                self._client.create_bucket(Bucket=self.name)
-            else:
-                location = {'LocationConstraint': region}
+                location = {'LocationConstraint': self._region}
                 self._client.create_bucket(Bucket=self.name, CreateBucketConfiguration=location)
-                self._region = region
+                log.info("S3 Bucket [" + self.name + "] was created in AWS Region [" + self.region + "]")
+                self._client.put_public_access_block(
+                    Bucket=self.name,
+                    PublicAccessBlockConfiguration={
+                        'BlockPublicAcls': True,
+                        'IgnorePublicAcls': True,
+                        'BlockPublicPolicy': True,
+                        'RestrictPublicBuckets': True
+                    },
+                )
+                log.info("S3 Bucket [" + self.name + "] ACLs were successfully applied")
         except botocore.exceptions.ClientError as e:
             log.error(e)
             return False
@@ -91,81 +98,7 @@ class S3Bucket(object):
                 log.info("S3 Bucket [" + self.name + "] was found in AWS Region [" + self.region + "]")
                 return True
 
-    @property
-    def name(self):
-        """
 
-        :return:
-        :rtype: str
-        """
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        """
-
-        :param value:
-        :return:
-        :rtype:
-        """
-
-        if self.valid_name(value):
-            self._name = value
-            log.debug(self._identify() + " = " + self._name)
-        else:
-            log.error(self._identify() + " = " + value)
-            raise ValueError("S3 Bucket name [" + value + "] is not valid.")
-
-    # def object(self, key) -> dict:
-    #     metadata = self._client.head_object(Bucket=self.name, Key=key)
-    #     size = metadata["ContentLength"]
-    #     hash = metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
-    #
-    #     log.info("S3 Object [" + key + "] was found in AWS Bucket [" + self.name + "]")
-    #
-    #     return {"size": size, "hash": hash}
-
-    # def objects(self) -> dict:
-    #
-    #     objects = {}
-    #
-    #     for key in self._client.list_objects(Bucket=self.name)['Contents']:
-    #         key = key['Key']
-    #         metadata = self._client.head_object(Bucket=self.name, Key=key)
-    #         size = metadata["ContentLength"]
-    #         hash = metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
-    #
-    #         log.info("S3 Object [" + key + "] was found in AWS Bucket [" + self.name + "]")
-    #
-    #         objects[key] = {"size": size, "hash": hash}
-    #
-    #     self._objects = objects
-    #     return objects
-
-    @staticmethod
-    def sha256(path: str) -> str:
-        """
-
-        :param path:
-        :return:
-        :rtype:
-        """
-
-        file_buffer: int = 65536
-        sha256 = hashlib.sha256()
-
-        with open(path, 'rb') as f:
-            while True:
-                data = f.read(file_buffer)
-                if not data:
-                    break
-                sha256.update(data)
-
-        log.debug(__class__.__name__ + "." +
-                  sys._getframe().f_code.co_name + " = " +
-                  sha256.hexdigest())
-
-        return sha256.hexdigest()
 
     def download(self, key: str, destination="/tmp") -> float:
 
@@ -207,6 +140,104 @@ class S3Bucket(object):
 
                 return False
 
+        else:
+            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
+
+
+    @property
+    def name(self):
+        """
+
+        :return:
+        :rtype: str
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        """
+
+        :param value:
+        :return:
+        :rtype:
+        """
+
+        if self.valid_name(value):
+            self._name = value
+            log.debug(self._identify() + " = " + self._name)
+        else:
+            log.error(self._identify() + " = " + value)
+            raise ValueError("S3 Bucket name [" + value + "] is not valid.")
+
+    def objects(self) -> dict:
+        if self.exists():
+
+            objects = {}
+
+            for key in self._client.list_objects(Bucket=self.name)['Contents']:
+                key = key['Key']
+                metadata = self._client.head_object(Bucket=self.name, Key=key)
+                size = metadata["ContentLength"]
+                hash = metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
+
+                log.info("S3 Object [" + key + "] was found in AWS Bucket [" + self.name + "]")
+
+                objects[key] = {"size": size, "hash": hash}
+
+            return objects
+        else:
+            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
+
+    @property
+    def region(self):
+        """
+
+        :return:
+        :rtype:
+        """
+        return self._region
+
+    @staticmethod
+    def sha256(path: str) -> str:
+        """
+
+        :param path:
+        :return:
+        :rtype:
+        """
+
+        file_buffer: int = 65536
+        sha256 = hashlib.sha256()
+
+        with open(path, 'rb') as f:
+            while True:
+                data = f.read(file_buffer)
+                if not data:
+                    break
+                sha256.update(data)
+
+        log.debug(__class__.__name__ + "." +
+                  sys._getframe().f_code.co_name + " = " +
+                  sha256.hexdigest())
+
+        return sha256.hexdigest()
+
+    @property
+    def size(self) -> int:
+        """Get the size of an S3 Bucket
+
+        :return: the sum of the sizes of all objects in the S3 Bucket
+        :rtype: int
+        """
+
+        if self.exists():
+            try:
+                response = self._client.list_objects(Bucket=self.name)['Contents']
+                bucket_size = sum(obj['Size'] for obj in response)
+                return bucket_size
+            except botocore.exceptions.ClientError as e:
+                log.error(e)
+                return 0
         else:
             raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
 
@@ -254,60 +285,6 @@ class S3Bucket(object):
             raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
 
         return upload
-
-
-    # def metadata(self, key: str):
-    #     """
-    #
-    #     :param key:
-    #     :return:
-    #     :rtype:
-    #     """
-    #
-    #     if self.exists():
-    #         try:
-    #             response = self._client.head_object(Bucket=self.name, Key=key)['Metadata']
-    #         except botocore.exceptions.ClientError as e:
-    #             if e.response['Error']['Code'] == "404":
-    #                 log.info(
-    #                     "Object [" + key + "] does not exist in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
-    #                 return None
-    #             else:
-    #                 raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
-    #         else:
-    #             log.info("Object [" + key + "] was found in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
-    #             return response
-    #     else:
-    #         raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
-
-
-    @property
-    def region(self):
-        """
-
-        :return:
-        :rtype:
-        """
-        return self._region
-
-    @property
-    def size(self) -> int:
-        """Get the size of an S3 Bucket
-
-        :return: the sum of the sizes of all objects in the S3 Bucket
-        :rtype: int
-        """
-
-        if self.exists():
-            try:
-                response = self._client.list_objects(Bucket=self.name)['Contents']
-                bucket_size = sum(obj['Size'] for obj in response)
-                return bucket_size
-            except botocore.exceptions.ClientError as e:
-                log.error(e)
-                return 0
-        else:
-            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
 
     @staticmethod
     def valid_name(name: str) -> bool:
