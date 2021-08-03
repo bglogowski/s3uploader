@@ -4,10 +4,11 @@ import random
 import sys
 
 from functools import reduce
+from timeit import default_timer as timer
+
 from s3uploader import log
 from s3uploader.common.cloud import S3Bucket
 from s3uploader.common.files import LocalFile
-from timeit import default_timer as timer
 
 
 def fs_get_files(directory: str) -> list:
@@ -71,7 +72,7 @@ def run(argv):
         elif opt in ("-l", "--file-limit"):
             try:
                 file_limit = int(arg)
-                log.debug("File limit = " + str(file_limit))
+                log.debug(f"File limit = {str(file_limit)}")
             except ValueError:
                 log.error("File limit is not an integer")
                 sys.exit(2)
@@ -79,7 +80,7 @@ def run(argv):
         elif opt in ("-s", "--size-limit"):
             try:
                 size_limit = int(arg)
-                log.debug("Size limit = " + str(size_limit))
+                log.debug(f"Size limit = {str(size_limit)}")
             except ValueError:
                 log.error("Size limit is not an integer")
                 sys.exit(2)
@@ -87,7 +88,7 @@ def run(argv):
         elif opt in ("-t", "--time-limit"):
             try:
                 time_limit = int(arg)
-                log.debug("Time limit = " + str(time_limit))
+                log.debug(f"Time limit = {str(time_limit)}")
             except ValueError:
                 log.error("Time limit is not an integer")
                 sys.exit(2)
@@ -125,14 +126,14 @@ def run(argv):
                 total_data_uploaded = reduce(lambda x, y: round(x + y), file_sizes)
                 if total_data_uploaded >= size_limit:
                     for msg in [str(round(x)) + " bytes" for x in file_sizes]:
-                        log.debug("Uploaded file of size = " + msg)
-                    log.debug("Total data uploaded = " + str(total_data_uploaded) + " bytes")
+                        log.debug(f"Uploaded file of size = {msg}")
+                    log.debug(f"Total data uploaded = {str(total_data_uploaded)} bytes")
                     log.warning("Upload size limit reached. Exiting...")
                     break
 
         # Determine if the upload time limit has been reached (in seconds)
         elapsed_seconds = round(timer() - start_time)
-        log.debug("Elapsed time = " + str(elapsed_seconds) + " seconds")
+        log.debug(f"Elapsed time = {str(elapsed_seconds)} seconds")
         if elapsed_seconds >= time_limit:
             log.warning("Upload time limit reached. Exiting...")
             break
@@ -143,30 +144,9 @@ def run(argv):
         if use_folders:
             file.s3key = file.relative_path
 
-        # Get the metadata of the file if it exists in S3
-        s3_object_metadata = bucket.metadata(file.s3key)
-
-        if s3_object_metadata is None:
-            file.uploadable = True
-        else:
-
-            if s3_object_metadata["sha256"] == file.hash:
-                log.info("Object [" + file.s3key + "] in S3 Bucket [" +
-                         bucket.name + "] has matching hash. Skipping...")
-            else:
-                log.info("File hash doesn't match Object hash in S3 Bucket")
-                log.debug("File " + file.s3key + " hash = " + file.hash)
-                log.debug("Object " + file.s3key + " hash = " + s3_object_metadata["sha256"])
-
-                file.uploadable = True
-                log.info("Uploading again...")
-
-        if file.uploadable:
-            original_size = bucket.size
-            elapsed_time = bucket.upload(file)
+        original_size = bucket.size
+        if bucket.upload(file):
 
             bucket_percent_increase = ((float(bucket.size) / float(original_size)) - 1) * 100
             file_sizes.append(file.size)
-
-            log.info("Upload completed in " + str(round(elapsed_time, 2)) + " seconds")
-            log.info("S3 Bucket size increased by " + str(round(bucket_percent_increase, 2)) + "%")
+            log.info(f"S3 Bucket size increased by {str(round(bucket_percent_increase, 2))}%")
