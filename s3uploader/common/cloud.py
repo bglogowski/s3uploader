@@ -1,3 +1,23 @@
+# Copyright (c) 2021 Bryan Glogowski
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import os
 import re
 import threading
@@ -13,21 +33,19 @@ from s3uploader.common.shared import Common
 
 
 class CloudError(Exception):
+    """Base class for exceptions related to cloud operations
     """
-    Base class for exceptions related to cloud operations
-    """
+
     def __init__(self, message):
         self.message = message
 
 
 class S3Bucket(Common, Crypto):
-    """
-    AWS S3 Bucket class
+    """AWS S3 Bucket class
     """
 
     def __init__(self, name: str, region=None):
-        """
-        Constructor for AWS S3 Bucket class
+        """Constructor for AWS S3 Bucket class
 
         :param name: the name of an AWS S3 Bucket
         :param region: an AWS region
@@ -48,9 +66,19 @@ class S3Bucket(Common, Crypto):
         self._object_metadata_cache = {}
 
     def _object_hash(self, key) -> str:
+        """
+
+        :param key:
+        :return:
+        """
         return self._object_sha256(key)
 
     def _object_metadata(self, key):
+        """
+
+        :param key:
+        :return:
+        """
 
         if key in self._object_metadata_cache:
             return self._object_metadata_cache[key]
@@ -71,6 +99,11 @@ class S3Bucket(Common, Crypto):
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     def _object_sha256(self, key):
+        """
+
+        :param key:
+        :return:
+        """
         metadata = self._object_metadata(key)
         if metadata is None:
             return metadata
@@ -78,6 +111,12 @@ class S3Bucket(Common, Crypto):
             return metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
 
     def _object_size(self, key):
+        """
+
+        :param key:
+        :return:
+        """
+
         metadata = self._object_metadata(key)
         if metadata is None:
             return metadata
@@ -86,7 +125,7 @@ class S3Bucket(Common, Crypto):
 
     @staticmethod
     def _progress(name: str, size: float, ops: str):
-        """Progress indicator for uploading and downloading files from S3
+        """Progress indicator for uploading and downloading files
 
         :param name: name of Object being uploaded to S3
         :type name: str
@@ -117,7 +156,7 @@ class S3Bucket(Common, Crypto):
         return call
 
     def create(self) -> bool:
-        """
+        """Create an S3 Bucket
 
         :return:
         :rtype:
@@ -167,7 +206,7 @@ class S3Bucket(Common, Crypto):
                 return True
 
     def download(self, key: str, destination="/tmp") -> bool:
-        """ Download Object from S3 Bucket
+        """Download Object from S3 Bucket to local file
         *** NOT IMPLEMENTED ***
 
         :param key:
@@ -218,7 +257,7 @@ class S3Bucket(Common, Crypto):
 
     @property
     def name(self):
-        """
+        """Get the name of the Bucket Object
 
         :return:
         :rtype: str
@@ -227,7 +266,7 @@ class S3Bucket(Common, Crypto):
 
     @name.setter
     def name(self, value):
-        """
+        """Set the name of the Bucket Object
 
         :param value:
         :return:
@@ -242,6 +281,11 @@ class S3Bucket(Common, Crypto):
             raise ValueError(f"S3 Bucket name [{value}] is not valid.")
 
     def objects(self) -> dict:
+        """List all the Objects in the S3 Bucket
+
+        :return:
+        """
+
         if self.exists():
 
             objects = {}
@@ -259,7 +303,7 @@ class S3Bucket(Common, Crypto):
 
     @property
     def region(self):
-        """
+        """Get the region currently being used
 
         :return:
         :rtype:
@@ -268,7 +312,7 @@ class S3Bucket(Common, Crypto):
 
     @property
     def size(self) -> int:
-        """Get the size of an S3 Bucket
+        """Get the total data size of the S3 Bucket
 
         :return: the sum of the sizes of all objects in the S3 Bucket
         :rtype: int
@@ -286,7 +330,7 @@ class S3Bucket(Common, Crypto):
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     def upload(self, file: LocalFile) -> bool:
-        """
+        """Upload a local file to S3
 
         :param file:
         :return:
