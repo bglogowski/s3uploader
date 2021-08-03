@@ -1,4 +1,22 @@
-
+# Copyright (c) 2021 Bryan Glogowski
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 import getopt
 import hashlib
@@ -32,11 +50,58 @@ log.setLevel(logging.INFO)
 log.addHandler(stdout_handler)
 
 
-class LocalFile(object):
-    """
+class Crypto(object):
+    """Base class that contains common cryptographic methods"""
 
-    """
+    @staticmethod
+    def sha256(path: str) -> str:
+        """Calculate the 256-bit SHA-2 cryptographic hash (SHA-256) of a file
+
+        :param path: the full path to the files
+        :return: str
+        """
+
+        # anecdotal evidence suggests the best chunk/buffer size is 65536 (2**16) bytes
+        # (optimal chunk size may be different for different hash algorithms)
+        file_buffer: int = 65536
+
+        # named constructors are much faster than new() and should be preferred
+        sha256 = hashlib.sha256()
+
+        with open(path, 'rb') as f:
+            while True:
+                data = f.read(file_buffer)
+                if not data:
+                    break
+                sha256.update(data)
+
+        log.debug(f"{__class__.__name__}.{sys._getframe().f_code.co_name} = {sha256.hexdigest()}")
+        return sha256.hexdigest()
+
+
+class Common(object):
+    """Base class for methods used by many classes"""
+    def _identify(self) -> str:
+        """Get the name of the class and function executing the code
+
+        :return: the name of the class and function executing the code
+        :rtype: str
+        """
+        return f"{self.__class__.__name__}.{sys._getframe(1).f_code.co_name}"
+
+
+class LocalFile(Common, Crypto):
+    """Class for working with files on the local file system"""
     def __init__(self, name: str, path: str, base_path: str):
+        """Constructor for local file class
+
+        :param name: the name of the file
+        :type name: str
+        :param path: the directory which contains the file
+        :type path: str
+        :param base_path: the base directory that contains all the files and directories
+        :type base_path: str
+        """
 
         # Use setters to validate input
         self.base_path = base_path
@@ -50,133 +115,172 @@ class LocalFile(object):
         self._hash = None
         self._metadata = None
 
-    def _identify(self):
-        return self.__class__.__name__ + "." + sys._getframe(1).f_code.co_name
-
     @staticmethod
     def exists(path: str) -> bool:
+        """Check if the file exists in the local filesystem
+
+        :param path: full path to the file in the local filesystem
+        :type path: str
+        :return: if the file exists or not
+        :rtype: bool
+        """
         return os.path.isfile(path)
 
-    @staticmethod
-    def sha256(path: str) -> str:
-
-        file_buffer: int = 65536
-        sha256 = hashlib.sha256()
-
-        with open(path, 'rb') as f:
-            while True:
-                data = f.read(file_buffer)
-                if not data:
-                    break
-                sha256.update(data)
-
-        log.debug(__class__.__name__ + "." +
-                  sys._getframe().f_code.co_name + " = " +
-                  sha256.hexdigest())
-
-        return sha256.hexdigest()
-
     @property
-    def base_path(self):
+    def base_path(self) -> str:
+        """Get the local file base path
+
+        :return: the local file base path
+        :rtype: str
+        """
         return self._base_path
 
     @base_path.setter
-    def base_path(self, value):
-        self._base_path = value
-        log.debug(self._identify() + " = " + self._base_path)
+    def base_path(self, base_path: str):
+        """Set the local file base path
+
+        :param base_path: the local file base path
+        :type base_path: str
+        """
+        self._base_path = base_path
+        log.debug(f"{self._identify()} = {self._base_path}")
 
     @property
-    def full_path(self) -> str:
-        return self._full_path
+    def file_path(self) -> str:
+        """Get the full path to the file (including the filename)
+
+        :return: the full path to the file (including the filename)
+        :rtype: str
+        """
+        return self._file_path
 
     @property
     def hash(self) -> str:
+        """Get the cryptographic hash of the local file
+
+        :return: the cryptographic hash of the local file
+        :rtype: str
+        """
         if self._hash is None:
-            self._hash = self.sha256(self.full_path)
-            log.debug(self._identify() + " = " + self._hash)
+            self._hash = self.sha256(self.file_path)
+            log.debug(f"{self._identify()} = {self._hash}")
         return self._hash
 
     @property
     def metadata(self) -> dict:
+        """Generate S3-compatible metadata for the local file
+
+        :return: S3-compatible metadata for the local file
+        :rtype: dict
+        """
         if self._metadata is None:
             self._metadata = {"Metadata": {"sha256": self.hash}}
         return self._metadata
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """Get the name of the file
+
+        :return: the name of the file
+        :rtype: str
+        """
         return self._name
 
     @name.setter
-    def name(self, value):
-        self._name = value
-        log.debug(self._identify() + " = " + self._name)
+    def name(self, name: str):
+        """Set the name of the file
+
+        :param name: the name of the file
+        :type name: str
+        """
+        self._name = name
+        log.debug(f"{self._identify()} = {self._name}")
 
     @property
-    def path(self):
+    def path(self) -> str:
+        """Get the name of the directory that contains the local file
+
+        :return: the name of the directory that contains the local file
+        :rtype: str
+        """
         return self._path
 
     @path.setter
-    def path(self, value):
+    def path(self, path: str):
+        """Set the name of the directory that contains the local file
 
+        :param path: the name of the directory that contains the local file
+        :type path: str
+        """
 
+        self._path = path
+        log.debug(f"{self._identify()} = {self._path}")
 
-        self._path = value
-        log.debug(self._identify() + " = " + self._path)
+        self._file_path = self.path + "/" + self.name
+        log.debug(f"{self.__class__.__name__}.file_path = {self._file_path}")
 
-        self._full_path = self.path + "/" + self.name
-        log.debug(self.__class__.__name__ + ".full_path = " + self._full_path)
-
-        relative_path = self.full_path.replace(self.base_path, "")
+        relative_path = self.file_path.replace(self.base_path, "")
         relative_path = re.sub(r'^/', '', relative_path)
         relative_path = re.sub(r'^\./', '', relative_path)
         self._relative_path = relative_path
-        log.debug(self.__class__.__name__ + ".relative_path = " + self._relative_path)
+        log.debug(f"{self.__class__.__name__}.relative_path = {self._relative_path}")
 
     @property
     def relative_path(self) -> str:
+        """Get the path of the file relative to the base path
+
+        :return: the path of the file relative to the base path
+        :rtype: str
+        """
         return self._relative_path
 
     @property
-    def s3key(self):
+    def s3key(self) -> str:
+        """Get the key that should be used to represent the file in an S3 Bucket
+
+        :return: key that should be used to represent the file in an S3 Bucket
+        :rtype: str
+        """
         return self._s3key
 
     @s3key.setter
-    def s3key(self, value):
-        self._s3key = value
-        log.debug(self._identify() + " = " + self._s3key)
+    def s3key(self, key: str):
+        """Set the key that should be used to represent the file in an S3 Bucket
+
+        :param key: key that should be used to represent the file in an S3 Bucket
+        :type key: str
+        """
+        self._s3key = key
+        log.debug(f"{self._identify()} = {self._s3key}")
 
     @property
-    def size(self) -> float:
+    def size(self) -> int:
+        """Get the size of the file in bytes
+
+        :return: number of bytes as a float
+        :rtype: int
+        """
         if self._size is None:
-            self._size = float(os.path.getsize(self.full_path))
-            log.debug(self._identify() + " = " + str(self._size))
+            self._size = os.path.getsize(self.file_path)
+            log.debug(f"{self._identify()} = {str(self._size)}")
         return self._size
-
-    @property
-    def uploadable(self):
-        return self._uploadable
-
-    @uploadable.setter
-    def uploadable(self, value):
-
-        if type(value) is bool:
-            self._uploadable = value
-            log.debug(self._identify() + " = " + str(self._uploadable))
-        else:
-            raise ValueError("Cannot set " + self._identify() + " to non-boolean type.")
-
 
 
 class CloudError(Exception):
-    """Base class for exceptions in this module."""
-
+    """Base class for exceptions related to cloud operations"""
     def __init__(self, message):
         self.message = message
 
 
-class S3Bucket(object):
-
+class S3Bucket(Common, Crypto):
+    """AWS S3 Bucket class"""
     def __init__(self, name: str, region=None):
+        """Constructor for AWS S3 Bucket class
+
+        :param name: the name of an AWS S3 Bucket
+        :type name: str
+        :param region: an AWS region
+        """
 
         self.name = name
 
@@ -188,143 +292,85 @@ class S3Bucket(object):
         self._session = boto3.session.Session()
         self._region = self._session.region_name
         self._transfer = boto3.s3.transfer.S3Transfer(self._client)
-        self._is_valid = False
+        self._exists = False
+        self._objects = None
+        self._object_metadata_cache = {}
 
-    def _identify(self):
-        return self.__class__.__name__ + "." + sys._getframe(1).f_code.co_name
+    def _object_hash(self, key: str) -> str:
+        """
 
-    def create(self, region=None) -> bool:
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
+        :return: hexadecimal digest of the cryptographic hash
+        :rtype: str
+        """
+        return self._object_sha256(key)
 
-        try:
-            if region is None:
-                self._client.create_bucket(Bucket=self.name)
-            else:
-                location = {'LocationConstraint': region}
-                self._client.create_bucket(Bucket=self.name, CreateBucketConfiguration=location)
-                self._region = region
-        except ClientError as e:
-            log.error(e)
-            return False
-        return True
+    def _object_metadata(self, key: str):
+        """
 
-    @property
-    def name(self):
-        return self._name
+        :param key: the key of the Object in the S3 Bucket
+        :return:
+        """
 
-    @name.setter
-    def name(self, value):
+        if key in self._object_metadata_cache:
+            return self._object_metadata_cache[key]
 
-        if self.valid_name(value):
-            self._name = value
-            log.debug(self._identify() + " = " + self._name)
-        else:
-            log.error(self._identify() + " = " + value)
-            raise ValueError("S3 Bucket name [" + value + "] is not valid.")
-
-    def upload(self, file: LocalFile) -> float:
-        if self.valid_bucket():
-            start = timer()
+        elif self.exists():
             try:
-                self._transfer.upload_file(file.full_path,
-                                           self.name,
-                                           file.s3key,
-                                           extra_args=file.metadata,
-                                           callback=self._progress(file, "Uploading"))
-            except ClientError as e:
-                log.error(e)
-                return timer() - start
-
-            return timer() - start
-        else:
-            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
-
-    def metadata(self, key: str):
-        if self.valid_bucket():
-            try:
-                response = self._client.head_object(Bucket=self.name, Key=key)['Metadata']
+                self._object_metadata_cache[key] = self._client.head_object(Bucket=self.name, Key=key)
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == "404":
-                    log.info(
-                        "Object [" + key + "] does not exist in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
+                    log.info(f"Object [{key}] does not exist in S3 Bucket [{self.name}] in AWS Region [{self.region}]")
                     return None
                 else:
-                    raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
+                    raise CloudError(f"Unknown return code from AWS: {e.response['Error']['Code']}")
             else:
-                log.info("Object [" + key + "] was found in S3 Bucket [" + self.name + "] in AWS Region [" + self.region + "]")
-                return response
+                log.info(f"Object [{key}] was found in S3 Bucket [{self.name}] in AWS Region [{self.region}]")
+                return self._object_metadata_cache[key]
         else:
-            raise CloudError("S3 Bucket " + self.name + " does not exist in AWS Region " + self.region)
+            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
-    def valid_bucket(self) -> bool:
-        if self._is_valid:
-            return True
+    def _object_sha256(self, key: str):
+        """Get the SHA-256 cryptographic hash of the object in S3
+
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
+        :return: the SHA-256 cryptographic hash of the object in S3
+        """
+        metadata = self._object_metadata(key)
+        if metadata is None:
+            return metadata
         else:
-            try:
-                self._client.head_bucket(Bucket=self.name)
-            except botocore.exceptions.ClientError as e:
-                if e.response['Error']['Code'] == "404":
-                    log.error("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
-                    return False
-                else:
-                    raise CloudError("Unknown return code from AWS: " + e.response['Error']['Code'])
-            else:
-                self._is_valid = True
-                log.info("S3 Bucket [" + self.name + "] was found in AWS Region [" + self.region + "]")
-                return True
+            return metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
 
-    @property
-    def region(self):
-        return self._region
+    def _object_size(self, key: str):
+        """Get the size of the object in bytes
 
-    @property
-    def size(self):
-        if self.valid_bucket():
-            try:
-                response = self._client.list_objects(Bucket=self.name)['Contents']
-                bucket_size = sum(obj['Size'] for obj in response)
-                return bucket_size
-            except ClientError as e:
-                log.error("AWS responded with: " + e)
-                return 0
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
+        :return: the size of the object in bytes or None
+        """
+
+        metadata = self._object_metadata(key)
+        if metadata is None:
+            return metadata
         else:
-            raise CloudError("S3 Bucket [" + self.name + "] does not exist in AWS Region [" + self.region + "]")
+            return int(metadata["ContentLength"])
 
     @staticmethod
-    def valid_name(value: str) -> bool:
+    def _progress(name: str, size: int, ops: str):
+        """Progress indicator for uploading and downloading files
 
-        # Reduce textual repetition
-        log_prefix = "S3 Bucket name [" + str(value) + "]"
-
-        # Make sure input is a string
-        if not type(value) == str:
-            log.error(error_prefix + " is not a string")
-            return False
-
-        # The string must be between 3 and 63 characters long
-        if len(value) < 3:
-            log.error(log_prefix + " is too short: it must be more than 2 characters")
-            return False
-        if len(value) > 63:
-            log.error(log_prefix + " is too long: it must be fewer than 64 characters")
-            return False
-
-        # The first and last characters may not be a hyphen
-        if value.startswith("-") or value.endswith("-"):
-            log.error(log_prefix + " cannot begin or end with a hyphen")
-            return False
-
-        # All characters must be lowercase alphanumeric or a hyphen
-        valid_characters = re.compile(r'[^a-z0-9-]').search
-        if bool(valid_characters(value)):
-            log.error(log_prefix + " contains invalid characters")
-            return False
-        else:
-            log.info(log_prefix + " passed validation")
-            return True
-
-    # For large files it is useful to get progress updates
-    @staticmethod
-    def _progress(file: LocalFile, ops: str):
+        :param name: name of Object being uploaded to S3
+        :type name: str
+        :param size: size of Object being uploaded to S3
+        :type size: int
+        :param ops: type of operation being performed
+        :type ops: str
+        :return: status of the operation
+        :rtype: function
+        """
 
         _seen_so_far = 0
         _ops = ops
@@ -337,25 +383,282 @@ class S3Bucket(object):
                 nonlocal _seen_so_far
                 nonlocal _msg_count
                 _seen_so_far += bytes_amount
-                percentage = (_seen_so_far / file.size) * 100
+                percentage = (float(_seen_so_far) / float(size)) * 100
                 if _msg_count % _msg_throttle == 0 or int(percentage) == 100:
-                    log.info(f"{_ops} [{file.name}]  {_seen_so_far} / {round(file.size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops} [{name}]  {_seen_so_far} / {size}  ({percentage:.2f}%)")
                 _msg_count += 1
 
         return call
 
+    def create(self) -> bool:
+        """Create an S3 Bucket
 
+        :return: if the creation of the S3 Bucket succeeded or not
+        :rtype: bool
+        """
+
+        try:
+            location = {'LocationConstraint': self._region}
+            self._client.create_bucket(Bucket=self.name, CreateBucketConfiguration=location)
+            log.info(f"S3 Bucket [{self.name}] was created in AWS Region [{self.region}]")
+
+            self._client.put_public_access_block(
+                Bucket=self.name,
+                PublicAccessBlockConfiguration={
+                    'BlockPublicAcls': True,
+                    'IgnorePublicAcls': True,
+                    'BlockPublicPolicy': True,
+                    'RestrictPublicBuckets': True
+                },
+            )
+            log.info(f"S3 Bucket [{self.name}] ACLs were successfully applied")
+        except botocore.exceptions.ClientError as e:
+            log.error(e)
+            return False
+        return True
+
+    def exists(self) -> bool:
+        """Check if Bucket exists in S3
+
+        :return: if the Bucket exists in S3 or not
+        :rtype: bool
+        """
+
+        if self._exists:
+            return True
+        else:
+            try:
+                self._client.head_bucket(Bucket=self.name)
+            except botocore.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == "404":
+                    log.error(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+                    return False
+                else:
+                    raise CloudError(f"Unknown return code from AWS: {e.response['Error']['Code']}")
+            else:
+                self._exists = True
+                log.info(f"S3 Bucket [{self.name}] was found in AWS Region [{self.region}]")
+                return True
+
+    def download(self, key: str, destination="/tmp") -> bool:
+        """Download Object from S3 Bucket to local file
+        *** NOT IMPLEMENTED ***
+
+        :param key: the key of the Object in the S3 Bucket to download
+        :type key: str
+        :param destination: base directory in which to download the file
+        :type destination: str
+        :return: if the download succeeded or not
+        :rtype: bool
+        """
+
+        if self.exists():
+            if "/" in key:
+                full_path = f"{destination}/{'/'.join(key.split('/')[0:-1])}"
+            else:
+                full_path = destination
+
+            if not os.path.isdir(full_path):
+                os.makedirs(full_path)
+
+            size = self._object_size(key)
+            file_path = f"{destination}/{key}"
+
+            start = timer()
+
+            try:
+                self._client.download_file(self.name, key, file_path,
+                                           Callback=self._progress(key, size, "Downloading"))
+                log.info(f"Download completed in {str(round(timer() - start, 2))} seconds")
+
+            except botocore.exceptions.ClientError as e:
+                log.error(e)
+                return False
+
+            s3_hash = self._object_hash(key)
+            log.debug(f"S3 Object [{key}] hash = {s3_hash}")
+
+            file_hash = self.sha256(file_path)
+            log.debug(f"Local file [{file_path}] hash = {file_hash}")
+
+            if file_hash == s3_hash:
+                log.info(f"Local file hash matches S3 Object hash in S3 Bucket [{self.name}]")
+                log.info(f"Download completed in {str(round(timer() - start, 2))} seconds")
+                return True
+            else:
+                log.error(f"File [{file_path}] hash does NOT match S3 Object hash in S3 Bucket [{self.name}]")
+
+                return False
+
+        else:
+            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+
+    @property
+    def name(self) -> str:
+        """Get the name of the Bucket Object
+
+        :return: the name of the Bucket Object
+        :rtype: str
+        """
+        return self._name
+
+    @name.setter
+    def name(self, name: str):
+        """Set the name of the Bucket Object
+
+        :param name: the name of the Bucket Object
+        """
+
+        if self.valid_name(name):
+            self._name = name
+            log.debug(f"{self._identify()} = {self._name}")
+        else:
+            log.error(f"{self._identify()} != {name}")
+            raise ValueError(f"S3 Bucket name [{name}] is not valid.")
+
+    def objects(self) -> dict:
+        """List all the Objects in the S3 Bucket
+
+        :return: all the Objects in the S3 Bucket
+        :rtype: dict
+        """
+
+        if self.exists():
+
+            objects = {}
+
+            for key in self._client.list_objects(Bucket=self.name)['Contents']:
+                key = key['Key']
+                size = self._object_size(key)
+                s3hash = self._object_hash(key)
+                objects[key] = {"size": size, "hash": s3hash}
+                log.info(f"S3 Object [{key}] was found in AWS Bucket [{self.name}]")
+
+            return objects
+        else:
+            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+
+    @property
+    def region(self) -> str:
+        """Get the region currently being used
+
+        :return: the region currently being used
+        :rtype: str
+        """
+        return self._region
+
+    @property
+    def size(self) -> int:
+        """Get the total data size of the S3 Bucket
+
+        :return: the total data size of the S3 Bucket
+        :rtype: int
+        """
+
+        if self.exists():
+            try:
+                response = self._client.list_objects(Bucket=self.name)['Contents']
+                bucket_size = sum(obj['Size'] for obj in response)
+                return bucket_size
+            except botocore.exceptions.ClientError as e:
+                log.error(e)
+                return 0
+        else:
+            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+
+    def upload(self, file: LocalFile) -> bool:
+        """Upload a local file to S3
+
+        :param file: Object representing a file in the local filesystem
+        :type file: LocalFile
+        :return: if the upload completed successfully or not
+        :rtype: bool
+        """
+
+        upload = False
+
+        if self.exists():
+
+            # s3_object_metadata = self.metadata(file.s3key)
+            self._object_metadata(file.s3key)
+
+            if self._object_metadata(file.s3key) is None:
+                upload = True
+            elif self._object_hash(file.s3key) == file.hash:
+                log.info(f"Object [{file.s3key}] in S3 Bucket [{self.name}] has matching hash. Skipping...")
+            else:
+                log.info("File hash doesn't match Object hash in S3 Bucket")
+                log.debug(f"File [{file.s3key}] hash = {file.hash}")
+                log.debug(f"Object [{file.s3key}] hash = {self._object_hash(file.s3key)}")
+                log.info("Uploading again...")
+                upload = True
+
+            if upload:
+                start = timer()
+                try:
+                    self._transfer.upload_file(file.file_path,
+                                               self.name,
+                                               file.s3key,
+                                               extra_args=file.metadata,
+                                               callback=self._progress(file.name, file.size, "Uploading"))
+                    log.info(f"Upload completed in {str(round(timer() - start, 2))} seconds")
+                except botocore.exceptions.ClientError as e:
+                    log.error(e)
+
+        else:
+            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+
+        return upload
+
+    @staticmethod
+    def valid_name(name: str) -> bool:
+        """Check string against S3 Bucket naming rules
+
+        :param name: the name of an S3 Bucket
+        :type name: str
+        :return: whether the string is a valid S3 Bucket name or not
+        :rtype: bool
+        """
+
+        # Reduce textual repetition
+        log_prefix = "S3 Bucket name [" + str(name) + "]"
+
+        # Make sure input is a string
+        if not type(name) == str:
+            log.error(f"{log_prefix} is not a string")
+            return False
+
+        # The string must be between 3 and 63 characters long
+        if len(name) < 3:
+            log.error(f"{log_prefix} is too short: it must be more than 2 characters")
+            return False
+        if len(name) > 63:
+            log.error(f"{log_prefix} is too long: it must be fewer than 64 characters")
+            return False
+
+        # The first and last characters may not be a hyphen
+        if name.startswith("-") or name.endswith("-"):
+            log.error(f"{log_prefix} cannot begin or end with a hyphen")
+            return False
+
+        # All characters must be lowercase alphanumeric or a hyphen
+        valid_characters = re.compile(r'[^a-z0-9-]').search
+        if bool(valid_characters(name)):
+            log.error(f"{log_prefix} contains invalid characters")
+            return False
+        else:
+            log.info(f"{log_prefix} passed validation")
+            return True
 
 
 def fs_get_files(directory: str) -> list:
-    """
-    Gather list of files to upload to S3
+    """Gather list of files to upload to S3
 
-    :param directory: Root directory with files to upload to S3
-    :type directory: str
-    :return: returns a list of LocalFile objects
-    :rtype: list
-    """
+     :param directory: Root directory with files to upload to S3
+     :type directory: str
+     :return: returns a list of LocalFile objects
+     :rtype: list
+     """
 
     # fix for macOS metadata files
     exclude_list: set[str] = {".DS_Store"}
@@ -368,6 +671,7 @@ def fs_get_files(directory: str) -> list:
                 file_list.append(LocalFile(f, path, directory))
 
     return file_list
+
 
 def main(argv):
     directory: str = ""
@@ -407,7 +711,7 @@ def main(argv):
         elif opt in ("-l", "--file-limit"):
             try:
                 file_limit = int(arg)
-                log.debug("File limit = " + str(file_limit))
+                log.debug(f"File limit = {str(file_limit)}")
             except ValueError:
                 log.error("File limit is not an integer")
                 sys.exit(2)
@@ -415,7 +719,7 @@ def main(argv):
         elif opt in ("-s", "--size-limit"):
             try:
                 size_limit = int(arg)
-                log.debug("Size limit = " + str(size_limit))
+                log.debug(f"Size limit = {str(size_limit)}")
             except ValueError:
                 log.error("Size limit is not an integer")
                 sys.exit(2)
@@ -423,7 +727,7 @@ def main(argv):
         elif opt in ("-t", "--time-limit"):
             try:
                 time_limit = int(arg)
-                log.debug("Time limit = " + str(time_limit))
+                log.debug(f"Time limit = {str(time_limit)}")
             except ValueError:
                 log.error("Time limit is not an integer")
                 sys.exit(2)
@@ -434,8 +738,7 @@ def main(argv):
         elif opt == "-r":
             random_shuffle = True
 
-    # Ensure a bucket name was specified
-    #assert isinstance(bucket_name, str)
+    # Create a Bucket object
     bucket = S3Bucket(bucket_name)
 
     # Get a list of files to upload
@@ -462,14 +765,14 @@ def main(argv):
                 total_data_uploaded = reduce(lambda x, y: round(x + y), file_sizes)
                 if total_data_uploaded >= size_limit:
                     for msg in [str(round(x)) + " bytes" for x in file_sizes]:
-                        log.debug("Uploaded file of size = " + msg)
-                    log.debug("Total data uploaded = " + str(total_data_uploaded) + " bytes")
+                        log.debug(f"Uploaded file of size = {msg}")
+                    log.debug(f"Total data uploaded = {str(total_data_uploaded)} bytes")
                     log.warning("Upload size limit reached. Exiting...")
                     break
 
         # Determine if the upload time limit has been reached (in seconds)
         elapsed_seconds = round(timer() - start_time)
-        log.debug("Elapsed time = " + str(elapsed_seconds) + " seconds")
+        log.debug(f"Elapsed time = {str(elapsed_seconds)} seconds")
         if elapsed_seconds >= time_limit:
             log.warning("Upload time limit reached. Exiting...")
             break
@@ -480,33 +783,12 @@ def main(argv):
         if use_folders:
             file.s3key = file.relative_path
 
-        # Get the metadata of the file if it exists in S3
-        s3_object_metadata = bucket.metadata(file.s3key)
+        original_size = bucket.size
+        if bucket.upload(file):
 
-        if s3_object_metadata is None:
-            file.uploadable = True
-        else:
-
-            if s3_object_metadata["sha256"] == file.hash:
-                log.info("Object [" + file.s3key + "] in S3 Bucket [" + bucket.name + "] has matching hash. Skipping...")
-            else:
-                log.info("File hash doesn't match Object hash in S3 Bucket")
-                log.debug("File " + file.s3key + " hash = " + file.hash)
-                log.debug("Object " + file.s3key + " hash = " + s3_object_metadata["sha256"])
-
-                file.uploadable = True
-                log.info("Uploading again...")
-
-        if file.uploadable:
-            original_size = bucket.size
-            elapsed_time = bucket.upload(file)
-            post_upload_size = bucket.size
-            percent = ((float(post_upload_size) / float(original_size)) - 1) * 100
+            bucket_percent_increase = ((float(bucket.size) / float(original_size)) - 1) * 100
             file_sizes.append(file.size)
-            log.info("Upload completed in " + str(round(elapsed_time, 2)) + " seconds")
-            log.info("S3 Bucket size increased by " + str(round(percent, 2)) + "%")
-
-
+            log.info(f"S3 Bucket size increased by {str(round(bucket_percent_increase, 2))}%")
 
 
 if __name__ == "__main__":
