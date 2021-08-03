@@ -27,9 +27,7 @@ from s3uploader.common.shared import Common
 
 
 class LocalFile(Common, Crypto):
-    """Class for working with files on the local file system
-    """
-
+    """Class for working with files on the local file system"""
     def __init__(self, name: str, path: str, base_path: str):
         """Constructor for local file class
 
@@ -192,13 +190,13 @@ class LocalFile(Common, Crypto):
         log.debug(f"{self._identify()} = {self._s3key}")
 
     @property
-    def size(self) -> float:
+    def size(self) -> int:
         """Get the size of the file in bytes
 
         :return: number of bytes as a float
-        :rtype: float
+        :rtype: int
         """
         if self._size is None:
-            self._size = float(os.path.getsize(self.file_path))
+            self._size = os.path.getsize(self.file_path)
             log.debug(f"{self._identify()} = {str(self._size)}")
         return self._size

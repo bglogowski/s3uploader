@@ -25,15 +25,14 @@ from s3uploader import log
 
 
 class Crypto(object):
-    """Base class that contains common cryptographic methods
-    """
+    """Base class that contains common cryptographic methods"""
 
     @staticmethod
     def sha256(path: str) -> str:
         """Calculate the 256-bit SHA-2 cryptographic hash (SHA-256) of a file
 
-        :param path:
-        :return:
+        :param path: the full path to the files
+        :return: str
         """
 
         # anecdotal evidence suggests the best chunk/buffer size is 65536 (2**16) bytes

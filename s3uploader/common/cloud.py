@@ -33,21 +33,18 @@ from s3uploader.common.shared import Common
 
 
 class CloudError(Exception):
-    """Base class for exceptions related to cloud operations
-    """
-
+    """Base class for exceptions related to cloud operations"""
     def __init__(self, message):
         self.message = message
 
 
 class S3Bucket(Common, Crypto):
-    """AWS S3 Bucket class
-    """
-
+    """AWS S3 Bucket class"""
     def __init__(self, name: str, region=None):
         """Constructor for AWS S3 Bucket class
 
         :param name: the name of an AWS S3 Bucket
+        :type name: str
         :param region: an AWS region
         """
 
@@ -65,18 +62,20 @@ class S3Bucket(Common, Crypto):
         self._objects = None
         self._object_metadata_cache = {}
 
-    def _object_hash(self, key) -> str:
+    def _object_hash(self, key: str) -> str:
         """
 
-        :param key:
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
         :return:
+        :rtype: str
         """
         return self._object_sha256(key)
 
-    def _object_metadata(self, key):
+    def _object_metadata(self, key: str):
         """
 
-        :param key:
+        :param key: the key of the Object in the S3 Bucket
         :return:
         """
 
@@ -98,11 +97,12 @@ class S3Bucket(Common, Crypto):
         else:
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
-    def _object_sha256(self, key):
-        """
+    def _object_sha256(self, key: str):
+        """Get the SHA-256 cryptographic hash of the object in S3
 
-        :param key:
-        :return:
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
+        :return: the SHA-256 cryptographic hash of the object in S3
         """
         metadata = self._object_metadata(key)
         if metadata is None:
@@ -110,27 +110,28 @@ class S3Bucket(Common, Crypto):
         else:
             return metadata["ResponseMetadata"]["HTTPHeaders"]["x-amz-meta-sha256"]
 
-    def _object_size(self, key):
-        """
+    def _object_size(self, key: str):
+        """Get the size of the object in bytes
 
-        :param key:
-        :return:
+        :param key: the key of the Object in the S3 Bucket
+        :type key: str
+        :return: the size of the object in bytes or None
         """
 
         metadata = self._object_metadata(key)
         if metadata is None:
             return metadata
         else:
-            return metadata["ContentLength"]
+            return int(metadata["ContentLength"])
 
     @staticmethod
-    def _progress(name: str, size: float, ops: str):
+    def _progress(name: str, size: int, ops: str):
         """Progress indicator for uploading and downloading files
 
         :param name: name of Object being uploaded to S3
         :type name: str
         :param size: size of Object being uploaded to S3
-        :type size: float
+        :type size: int
         :param ops: type of operation being performed
         :type ops: str
         :return: status of the operation
@@ -148,9 +149,9 @@ class S3Bucket(Common, Crypto):
                 nonlocal _seen_so_far
                 nonlocal _msg_count
                 _seen_so_far += bytes_amount
-                percentage = (_seen_so_far / size) * 100
+                percentage = (float(_seen_so_far) / float(size)) * 100
                 if _msg_count % _msg_throttle == 0 or int(percentage) == 100:
-                    log.info(f"{_ops} [{name}]  {_seen_so_far} / {round(size)}  ({percentage:.2f}%)")
+                    log.info(f"{_ops} [{name}]  {_seen_so_far} / {size}  ({percentage:.2f}%)")
                 _msg_count += 1
 
         return call
@@ -158,8 +159,8 @@ class S3Bucket(Common, Crypto):
     def create(self) -> bool:
         """Create an S3 Bucket
 
-        :return:
-        :rtype:
+        :return: if the creation of the S3 Bucket succeeded or not
+        :rtype: bool
         """
 
         try:
@@ -209,9 +210,12 @@ class S3Bucket(Common, Crypto):
         """Download Object from S3 Bucket to local file
         *** NOT IMPLEMENTED ***
 
-        :param key:
-        :param destination:
-        :return:
+        :param key: the key of the Object in the S3 Bucket to download
+        :type key: str
+        :param destination: base directory in which to download the file
+        :type destination: str
+        :return: if the download succeeded or not
+        :rtype: bool
         """
 
         if self.exists():
@@ -223,7 +227,7 @@ class S3Bucket(Common, Crypto):
             if not os.path.isdir(full_path):
                 os.makedirs(full_path)
 
-            size = float(self._object_size(key))
+            size = self._object_size(key)
             file_path = f"{destination}/{key}"
 
             start = timer()
@@ -256,34 +260,33 @@ class S3Bucket(Common, Crypto):
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Get the name of the Bucket Object
 
-        :return:
+        :return: the name of the Bucket Object
         :rtype: str
         """
         return self._name
 
     @name.setter
-    def name(self, value):
+    def name(self, name: str):
         """Set the name of the Bucket Object
 
-        :param value:
-        :return:
-        :rtype:
+        :param name: the name of the Bucket Object
         """
 
-        if self.valid_name(value):
-            self._name = value
-            log.debug(self._identify() + " = " + self._name)
+        if self.valid_name(name):
+            self._name = name
+            log.debug(f"{self._identify()} = {self._name}")
         else:
-            log.error(self._identify() + " = " + value)
-            raise ValueError(f"S3 Bucket name [{value}] is not valid.")
+            log.error(f"{self._identify()} != {name}")
+            raise ValueError(f"S3 Bucket name [{name}] is not valid.")
 
     def objects(self) -> dict:
         """List all the Objects in the S3 Bucket
 
-        :return:
+        :return: all the Objects in the S3 Bucket
+        :rtype: dict
         """
 
         if self.exists():
@@ -302,11 +305,11 @@ class S3Bucket(Common, Crypto):
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     @property
-    def region(self):
+    def region(self) -> str:
         """Get the region currently being used
 
-        :return:
-        :rtype:
+        :return: the region currently being used
+        :rtype: str
         """
         return self._region
 
@@ -314,7 +317,7 @@ class S3Bucket(Common, Crypto):
     def size(self) -> int:
         """Get the total data size of the S3 Bucket
 
-        :return: the sum of the sizes of all objects in the S3 Bucket
+        :return: the total data size of the S3 Bucket
         :rtype: int
         """
 
@@ -332,8 +335,9 @@ class S3Bucket(Common, Crypto):
     def upload(self, file: LocalFile) -> bool:
         """Upload a local file to S3
 
-        :param file:
-        :return:
+        :param file: Object representing a file in the local filesystem
+        :type file: LocalFile
+        :return: if the upload completed successfully or not
         :rtype: bool
         """
 

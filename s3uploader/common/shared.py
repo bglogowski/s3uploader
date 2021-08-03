@@ -22,13 +22,11 @@ import sys
 
 
 class Common(object):
-    """Base class for methods used by many classes
-    """
-
-    def _identify(self):
+    """Base class for methods used by many classes"""
+    def _identify(self) -> str:
         """Get the name of the class and function executing the code
 
-        :return:
-        :rtype:
+        :return: the name of the class and function executing the code
+        :rtype: str
         """
         return f"{self.__class__.__name__}.{sys._getframe(1).f_code.co_name}"
