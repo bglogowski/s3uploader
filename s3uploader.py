@@ -579,9 +579,6 @@ class S3Bucket(Common, Crypto):
 
         if self.exists():
 
-            # s3_object_metadata = self.metadata(file.s3key)
-            self._object_metadata(file.s3key)
-
             if self._object_metadata(file.s3key) is None:
                 upload = True
             elif self._object_hash(file.s3key) == file.hash:
