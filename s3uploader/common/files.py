@@ -1,12 +1,12 @@
-import hashlib
 import os
 import re
-import sys
 
 from s3uploader import log
+from s3uploader.common.crypto import Crypto
+from s3uploader.common.shared import Common
 
 
-class LocalFile(object):
+class LocalFile(Common, Crypto):
     """
 
     """
@@ -30,14 +30,6 @@ class LocalFile(object):
         self._hash = None
         self._metadata = None
 
-    def _identify(self):
-        """
-
-        :return:
-        :rtype:
-        """
-        return self.__class__.__name__ + "." + sys._getframe(1).f_code.co_name
-
     @staticmethod
     def exists(path: str) -> bool:
         """
@@ -48,33 +40,8 @@ class LocalFile(object):
         """
         return os.path.isfile(path)
 
-    @staticmethod
-    def sha256(path: str) -> str:
-        """
-
-        :param path:
-        :return:
-        :rtype:
-        """
-
-        file_buffer: int = 65536
-        sha256 = hashlib.sha256()
-
-        with open(path, 'rb') as f:
-            while True:
-                data = f.read(file_buffer)
-                if not data:
-                    break
-                sha256.update(data)
-
-        log.debug(__class__.__name__ + "." +
-                  sys._getframe().f_code.co_name + " = " +
-                  sha256.hexdigest())
-
-        return sha256.hexdigest()
-
     @property
-    def base_path(self):
+    def base_path(self) -> str:
         """
 
         :return:
@@ -91,15 +58,15 @@ class LocalFile(object):
         :rtype:
         """
         self._base_path = value
-        log.debug(self._identify() + " = " + self._base_path)
+        log.debug(f"{self._identify()} = {self._base_path}")
 
     @property
-    def full_path(self) -> str:
+    def file_path(self) -> str:
         """
 
         :return:
         """
-        return self._full_path
+        return self._file_path
 
     @property
     def hash(self) -> str:
@@ -108,8 +75,8 @@ class LocalFile(object):
         :return:
         """
         if self._hash is None:
-            self._hash = self.sha256(self.full_path)
-            log.debug(self._identify() + " = " + self._hash)
+            self._hash = self.sha256(self.file_path)
+            log.debug(f"{self._identify()} = {self._hash}")
         return self._hash
 
     @property
@@ -141,7 +108,7 @@ class LocalFile(object):
         :rtype:
         """
         self._name = value
-        log.debug(self._identify() + " = " + self._name)
+        log.debug(f"{self._identify()} = {self._name}")
 
     @property
     def path(self):
@@ -162,16 +129,16 @@ class LocalFile(object):
         """
 
         self._path = value
-        log.debug(self._identify() + " = " + self._path)
+        log.debug(f"{self._identify()} = {self._path}")
 
-        self._full_path = self.path + "/" + self.name
-        log.debug(self.__class__.__name__ + ".full_path = " + self._full_path)
+        self._file_path = self.path + "/" + self.name
+        log.debug(f"{self.__class__.__name__}.file_path = {self._file_path}")
 
-        relative_path = self.full_path.replace(self.base_path, "")
+        relative_path = self.file_path.replace(self.base_path, "")
         relative_path = re.sub(r'^/', '', relative_path)
         relative_path = re.sub(r'^\./', '', relative_path)
         self._relative_path = relative_path
-        log.debug(self.__class__.__name__ + ".relative_path = " + self._relative_path)
+        log.debug(f"{self.__class__.__name__}.relative_path = {self._relative_path}")
 
     @property
     def relative_path(self) -> str:
@@ -200,7 +167,7 @@ class LocalFile(object):
         :rtype:
         """
         self._s3key = value
-        log.debug(self._identify() + " = " + self._s3key)
+        log.debug(f"{self._identify()} = {self._s3key}")
 
     @property
     def size(self) -> float:
@@ -210,30 +177,6 @@ class LocalFile(object):
         :rtype: float
         """
         if self._size is None:
-            self._size = float(os.path.getsize(self.full_path))
-            log.debug(self._identify() + " = " + str(self._size))
+            self._size = float(os.path.getsize(self.file_path))
+            log.debug(f"{self._identify()} = {str(self._size)}")
         return self._size
-
-    @property
-    def uploadable(self):
-        """
-
-        :return:
-        :rtype:
-        """
-        return self._uploadable
-
-    @uploadable.setter
-    def uploadable(self, value):
-        """
-
-        :param value:
-        :return:
-        :rtype:
-        """
-
-        if type(value) is bool:
-            self._uploadable = value
-            log.debug(self._identify() + " = " + str(self._uploadable))
-        else:
-            raise ValueError("Cannot set " + self._identify() + " to non-boolean type.")
