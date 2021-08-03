@@ -67,7 +67,7 @@ class S3Bucket(Common, Crypto):
 
         :param key: the key of the Object in the S3 Bucket
         :type key: str
-        :return:
+        :return: hexadecimal digest of the cryptographic hash
         :rtype: str
         """
         return self._object_sha256(key)
