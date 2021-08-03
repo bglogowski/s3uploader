@@ -333,7 +333,20 @@ class S3Bucket(Common, Crypto):
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     def upload(self, file: LocalFile) -> bool:
-        """Upload a local file to S3
+        """Upload a local file to AWS S3
+
+        A note about uploads to S3:
+        ==================
+        Partial uploads do not exist in S3 -- either the file upload
+        completes and an object appears in the Bucket or the upload
+        fails and no object is visible. Additionally, uploads are
+        not atomic operations in the sense that S3 is only
+        eventually consistent from a user's perspective, such that
+        an uploaded file may not be accessible via a query until some
+        time after it has been uploaded successfully, making upload
+        validation potentially unreliable on the time scale intended
+        for this code to run. Therefore only minimal upload validation
+        is provided.
 
         :param file: Object representing a file in the local filesystem
         :type file: LocalFile
@@ -367,6 +380,7 @@ class S3Bucket(Common, Crypto):
                     log.info(f"Upload completed in {str(round(timer() - start, 2))} seconds")
                 except botocore.exceptions.ClientError as e:
                     log.error(e)
+                    upload = False
 
         else:
             raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
