@@ -18,8 +18,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-from s3uploader import app
+class CloudError(Exception):
+    """Base class for exceptions related to cloud operations"""
 
-if __name__ == '__main__':
-    app.run(sys.argv[1:])
+    def __init__(self, message):
+        self.message = message

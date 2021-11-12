@@ -21,9 +21,9 @@
 import os
 import re
 
-from s3uploader import log
-from s3uploader.common.crypto import Crypto
-from s3uploader.common.shared import Common
+from uploader import log
+from uploader.common.crypto import Crypto
+from uploader.common.shared import Common
 
 
 class LocalFile(Common, Crypto):

@@ -26,9 +26,9 @@ import sys
 from functools import reduce
 from timeit import default_timer as timer
 
-from s3uploader import log
-from s3uploader.common.cloud import S3Bucket
-from s3uploader.common.files import LocalFile
+from uploader import log
+from uploader.cloud.aws import S3Bucket
+from uploader.common.files import LocalFile
 
 
 def fs_get_files(directory: str) -> list:
@@ -64,8 +64,8 @@ def run(argv):
     use_folders: bool = False
     random_shuffle: bool = False
 
-    start_time = timer()
-    file_sizes = []
+    start_time: float = timer()
+    file_sizes: list = []
 
     # Parse the command line arguments
     try:
@@ -166,6 +166,10 @@ def run(argv):
         original_size = bucket.size
         if bucket.upload(file):
 
-            bucket_percent_increase = ((float(bucket.size) / float(original_size)) - 1) * 100
             file_sizes.append(file.size)
-            log.info(f"S3 Bucket size increased by {str(round(bucket_percent_increase, 2))}%")
+
+            if original_size > 0:
+                bucket_percent_increase = ((float(bucket.size) / float(original_size)) - 1) * 100
+                log.debug(f"S3 Bucket size increased by {str(round(bucket_percent_increase, 2))}%")
+            else:
+                log.debug(f"S3 Bucket size increased by 100%")
