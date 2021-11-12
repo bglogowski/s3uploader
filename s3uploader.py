@@ -22,6 +22,7 @@ import getopt
 import hashlib
 import logging
 import os
+import json
 import random
 import re
 import sys
@@ -29,8 +30,11 @@ import threading
 from functools import reduce
 from timeit import default_timer as timer
 
-import boto3.s3.transfer
-import botocore.exceptions
+from boto3 import client
+from boto3.session import Session
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
 logging.getLogger('botocore').setLevel(logging.CRITICAL)
 logging.getLogger('urllib3').setLevel(logging.CRITICAL)
@@ -268,12 +272,20 @@ class LocalFile(Common, Crypto):
 
 class CloudError(Exception):
     """Base class for exceptions related to cloud operations"""
+
     def __init__(self, message):
         self.message = message
 
 
+class AmazonError(CloudError):
+
+    def __str__(self):
+        return f"AWS {self.message}"
+
+
 class S3Bucket(Common, Crypto):
     """AWS S3 Bucket class"""
+
     def __init__(self, name: str, region=None):
         """Constructor for AWS S3 Bucket class
 
@@ -282,19 +294,18 @@ class S3Bucket(Common, Crypto):
         :param region: an AWS region
         """
 
-        self.name = name
+        self.name: str = name
+        self._exists: bool = False
+        self._objects = None
+
+        self._object_metadata_cache = {}
+        self.load_object_metadata_cache()
 
         if region is None:
-            self._client = boto3.client('s3')
-        else:
-            self._client = boto3.client('s3', region_name=region)
+            session = Session()
+            region = session.region_name
 
-        self._session = boto3.session.Session()
-        self._region = self._session.region_name
-        self._transfer = boto3.s3.transfer.S3Transfer(self._client)
-        self._exists = False
-        self._objects = None
-        self._object_metadata_cache = {}
+        self.region: str = region
 
     def _object_hash(self, key: str) -> str:
         """
@@ -304,7 +315,7 @@ class S3Bucket(Common, Crypto):
         :return: hexadecimal digest of the cryptographic hash
         :rtype: str
         """
-        return self._object_sha256(key)
+        return self._object_hash_sha256(key)
 
     def _object_metadata(self, key: str):
         """
@@ -319,19 +330,20 @@ class S3Bucket(Common, Crypto):
         elif self.exists():
             try:
                 self._object_metadata_cache[key] = self._client.head_object(Bucket=self.name, Key=key)
-            except botocore.exceptions.ClientError as e:
+            except ClientError as e:
                 if e.response['Error']['Code'] == "404":
                     log.info(f"Object [{key}] does not exist in S3 Bucket [{self.name}] in AWS Region [{self.region}]")
                     return None
                 else:
-                    raise CloudError(f"Unknown return code from AWS: {e.response['Error']['Code']}")
+                    raise AmazonError(f"error code: {e.response['Error']['Code']}")
             else:
                 log.info(f"Object [{key}] was found in S3 Bucket [{self.name}] in AWS Region [{self.region}]")
+                self.save_object_metadata_cache()
                 return self._object_metadata_cache[key]
         else:
-            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+            raise AmazonError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
-    def _object_sha256(self, key: str):
+    def _object_hash_sha256(self, key: str):
         """Get the SHA-256 cryptographic hash of the object in S3
 
         :param key: the key of the Object in the S3 Bucket
@@ -376,7 +388,7 @@ class S3Bucket(Common, Crypto):
         _ops = ops
         _lock = threading.Lock()
         _msg_count = 0
-        _msg_throttle = 50
+        _msg_throttle = 500
 
         def call(bytes_amount):
             with _lock:
@@ -389,6 +401,24 @@ class S3Bucket(Common, Crypto):
                 _msg_count += 1
 
         return call
+
+    def clear_object_metadata_cache(self):
+        if os.path.exists(self.name + ".json"):
+            os.remove(self.name + ".json")
+        self._object_metadata_cache = {}
+
+    def load_object_metadata_cache(self):
+        # https://stackoverflow.com/questions/39450065/python-3-read-write-compressed-json-objects-from-to-gzip-file
+        if os.path.exists(self.name + ".json"):
+            log.info(f"Loading metadata from file [{self.name}.json]")
+            with open(self.name + ".json") as f:
+                self._object_metadata_cache = json.load(f)
+
+    def save_object_metadata_cache(self):
+        # https://stackoverflow.com/questions/39450065/python-3-read-write-compressed-json-objects-from-to-gzip-file
+        log.info(f"Saving S3 Object metadata cache to file [{self.name}.json]")
+        with open(self.name + ".json", 'w') as f:
+            json.dump(self._object_metadata_cache, f, ensure_ascii=False, indent=4, sort_keys=True, default=str)
 
     def create(self) -> bool:
         """Create an S3 Bucket
@@ -412,7 +442,7 @@ class S3Bucket(Common, Crypto):
                 },
             )
             log.info(f"S3 Bucket [{self.name}] ACLs were successfully applied")
-        except botocore.exceptions.ClientError as e:
+        except ClientError as e:
             log.error(e)
             return False
         return True
@@ -429,15 +459,16 @@ class S3Bucket(Common, Crypto):
         else:
             try:
                 self._client.head_bucket(Bucket=self.name)
-            except botocore.exceptions.ClientError as e:
+            except ClientError as e:
                 if e.response['Error']['Code'] == "404":
-                    log.error(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+                    self._exists = False
+                    log.info(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
                     return False
                 else:
-                    raise CloudError(f"Unknown return code from AWS: {e.response['Error']['Code']}")
+                    raise AmazonError(f"error code: {e.response['Error']['Code']}")
             else:
                 self._exists = True
-                log.info(f"S3 Bucket [{self.name}] was found in AWS Region [{self.region}]")
+                log.debug(f"S3 Bucket [{self.name}] was found in AWS Region [{self.region}]")
                 return True
 
     def download(self, key: str, destination="/tmp") -> bool:
@@ -471,7 +502,7 @@ class S3Bucket(Common, Crypto):
                                            Callback=self._progress(key, size, "Downloading"))
                 log.info(f"Download completed in {str(round(timer() - start, 2))} seconds")
 
-            except botocore.exceptions.ClientError as e:
+            except ClientError as e:
                 log.error(e)
                 return False
 
@@ -491,7 +522,7 @@ class S3Bucket(Common, Crypto):
                 return False
 
         else:
-            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+            raise AmazonError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     @property
     def name(self) -> str:
@@ -536,7 +567,7 @@ class S3Bucket(Common, Crypto):
 
             return objects
         else:
-            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+            raise AmazonError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     @property
     def region(self) -> str:
@@ -546,6 +577,27 @@ class S3Bucket(Common, Crypto):
         :rtype: str
         """
         return self._region
+
+    @region.setter
+    def region(self, region: str):
+        self._region = region
+        log.info(f"AWS Region is set to [{self.region}]")
+
+        self._client = client('s3', region_name=region)
+
+        if self.exists():
+            try:
+                response = self._client.get_bucket_accelerate_configuration(Bucket=self.name)
+            except ClientError as e:
+                log.error(e)
+            else:
+                try:
+                    if response['Status'] == "Enabled":
+                        accelerated_config = Config(s3={"use_accelerate_endpoint": True})
+                        self._client = client('s3', region_name=region, config=accelerated_config)
+                        log.info(f"Enabled acceleration for S3 Bucket [{self.name}] in AWS Region [{self.region}]")
+                except KeyError:
+                    log.debug(f"Acceleration is not enabled for S3 Bucket [{self.name}] in AWS Region [{self.region}]")
 
     @property
     def size(self) -> int:
@@ -560,14 +612,29 @@ class S3Bucket(Common, Crypto):
                 response = self._client.list_objects(Bucket=self.name)['Contents']
                 bucket_size = sum(obj['Size'] for obj in response)
                 return bucket_size
-            except botocore.exceptions.ClientError as e:
+            except KeyError:
+                return 0
+            except ClientError as e:
                 log.error(e)
                 return 0
         else:
-            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
+            raise AmazonError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
-    def upload(self, file: LocalFile) -> bool:
-        """Upload a local file to S3
+    def upload(self, file: LocalFile):
+        """Upload a local file to AWS S3
+
+        A note about uploads to S3:
+        ==================
+        Partial uploads do not exist in S3 -- either the file upload
+        completes and an object appears in the Bucket or the upload
+        fails and no object is visible. Additionally, uploads are
+        not atomic operations in the sense that S3 is only
+        eventually consistent from a user's perspective, such that
+        an uploaded file may not be accessible via a query until some
+        time after it has been uploaded successfully, making upload
+        validation potentially unreliable on the time scale intended
+        for this code to run. Therefore only minimal upload validation
+        is provided.
 
         :param file: Object representing a file in the local filesystem
         :type file: LocalFile
@@ -575,37 +642,61 @@ class S3Bucket(Common, Crypto):
         :rtype: bool
         """
 
-        upload = False
-
         if self.exists():
 
             if self._object_metadata(file.s3key) is None:
-                upload = True
-            elif self._object_hash(file.s3key) == file.hash:
-                log.info(f"Object [{file.s3key}] in S3 Bucket [{self.name}] has matching hash. Skipping...")
+                file_should_be_uploaded = True
+
             else:
-                log.info("File hash doesn't match Object hash in S3 Bucket")
                 log.debug(f"File [{file.s3key}] hash = {file.hash}")
                 log.debug(f"Object [{file.s3key}] hash = {self._object_hash(file.s3key)}")
-                log.info("Uploading again...")
-                upload = True
+                if self._object_hash(file.s3key) == file.hash:
+                    file_should_be_uploaded = False
+                    log.info(f"File hash for [{file.name}] matches "
+                             f"Object hash in S3 Bucket [{self.name}]. Skipping...")
 
-            if upload:
+                else:
+                    file_should_be_uploaded = True
+                    log.info(f"File hash for [{file.name}] does not match "
+                             f"Object hash in S3 Bucket [{self.name}]. Uploading again...")
+
+
+            if file_should_be_uploaded:
+
+                config = TransferConfig(multipart_threshold=1024 * 25,
+                                        max_concurrency=10,
+                                        multipart_chunksize=1024 * 25,
+                                        use_threads=True)
+
                 start = timer()
                 try:
-                    self._transfer.upload_file(file.file_path,
-                                               self.name,
-                                               file.s3key,
-                                               extra_args=file.metadata,
-                                               callback=self._progress(file.name, file.size, "Uploading"))
-                    log.info(f"Upload completed in {str(round(timer() - start, 2))} seconds")
-                except botocore.exceptions.ClientError as e:
+                    self._client.upload_file(file.file_path,
+                                             self.name,
+                                             file.s3key,
+                                             ExtraArgs=file.metadata,
+                                             Config=config,
+                                             Callback=self._progress(file.name,
+                                                                     file.size,
+                                                                     "Uploading"))
+
+                    if file.s3key in self._object_metadata_cache:
+                        self._object_metadata_cache.pop(file.s3key)
+                        log.info(f"Removed cached metadata for [{file.s3key}]")
+
+                except ClientError as e:
                     log.error(e)
+                    log.error(f"Upload failed after {str(round(timer() - start, 2))} seconds")
+                    return False
+                else:
+                    if self._object_metadata(file.s3key) is None:
+                        log.info(f"Metadata for [{file.s3key}] not found in S3 Bucket [{self.name}]")
+                    else:
+                        log.info(f"Metadata for [{file.s3key}] successfully cached")
 
+                    log.info(f"Upload completed in {str(round(timer() - start, 2))} seconds")
+                    return True
         else:
-            raise CloudError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
-
-        return upload
+            raise AmazonError(f"S3 Bucket [{self.name}] does not exist in AWS Region [{self.region}]")
 
     @staticmethod
     def valid_name(name: str) -> bool:
@@ -644,7 +735,7 @@ class S3Bucket(Common, Crypto):
             log.error(f"{log_prefix} contains invalid characters")
             return False
         else:
-            log.info(f"{log_prefix} passed validation")
+            log.debug(f"{log_prefix} passed validation")
             return True
 
 
